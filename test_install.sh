@@ -33,12 +33,12 @@ print_error() {
 # ============================================================================
 
 REMOTE_DOWNLOAD_URL="https://nacos.io/download/nacos-server/nacos-setup-VERSION.zip"
-INSTALL_BASE_DIR="/usr/local"
+INSTALL_BASE_DIR="/Users/nov11/github/nacos-setup/tmp-test"
 CURRENT_LINK="nacos-setup"
-BIN_DIR="/usr/local/bin"
+BIN_DIR="/Users/nov11/github/nacos-setup/tmp-test/bin"
 SCRIPT_NAME="nacos-setup"
 TEMP_DIR="/tmp/nacos-setup-install-$$"
-CACHE_DIR="${HOME}/.nacos/cache"  # 缓存目录
+CACHE_DIR="/Users/nov11/github/nacos-setup/tmp-test/cache"  # 测试缓存目录
 
 # Detect installation mode
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -498,34 +498,6 @@ main() {
     # Verify
     if verify_installation; then
         print_usage_info
-
-        # After successful installer setup, offer to install Nacos (default version)
-        echo ""
-        # Try to detect default Nacos version from installed script
-        detected_default_version="3.1.1"
-        installed_script="$INSTALL_BASE_DIR/$CURRENT_LINK/bin/$SCRIPT_NAME"
-        if [ -f "$installed_script" ]; then
-            v=$(sed -n 's/^DEFAULT_VERSION="\(.*\)"/\1/p' "$installed_script" || true)
-            if [ -n "$v" ]; then
-                detected_default_version="$v"
-            fi
-        fi
-
-        read -p "Do you want to install Nacos $detected_default_version now? (Y/n): " -r REPLY
-        echo ""
-        if [[ "$REPLY" =~ ^[Yy]?$ ]] || [[ -z "$REPLY" ]]; then
-            print_info "Installing Nacos $detected_default_version..."
-            # Use the installed global command to perform the Nacos installation
-            if command -v "$SCRIPT_NAME" >/dev/null 2>&1; then
-                "$SCRIPT_NAME" -v "$detected_default_version"
-            else
-                # fallback to calling script via BIN_DIR
-                "$BIN_DIR/$SCRIPT_NAME" -v "$detected_default_version"
-            fi
-        else
-            print_info "Skipping Nacos installation. You can run: $SCRIPT_NAME -v $detected_default_version"
-        fi
-
         exit 0
     else
         print_error "Installation verification failed"

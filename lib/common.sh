@@ -293,3 +293,37 @@ check_system_commands() {
     print_info "All required commands are available"
     return 0
 }
+
+# ============================================================================
+# Realpath fallback
+# Try to resolve a path to its absolute real path using available tools.
+# Uses: realpath, readlink -f, python3/python, or falls back to readlink.
+# Returns resolved path or original input if resolution isn't possible.
+realpath_fallback() {
+    local p="$1"
+    if [ -z "$p" ]; then
+        return 1
+    fi
+
+    if command -v realpath >/dev/null 2>&1; then
+        realpath "$p" && return 0
+    fi
+
+    # Try GNU readlink -f
+    if readlink -f "$p" >/dev/null 2>&1; then
+        readlink -f "$p" && return 0
+    fi
+
+    # Python3 fallback
+    if command -v python3 >/dev/null 2>&1; then
+        python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$p" && return 0
+    fi
+
+    # Python2 fallback
+    if command -v python >/dev/null 2>&1; then
+        python -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$p" && return 0
+    fi
+
+    # Last resort: plain readlink (may return relative target)
+    readlink "$p" 2>/dev/null || echo "$p"
+}
