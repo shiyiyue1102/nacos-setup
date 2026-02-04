@@ -25,7 +25,7 @@ source "$SCRIPT_DIR/common.sh"
 # ============================================================================
 
 CACHE_DIR="${NACOS_CACHE_DIR:-$HOME/.nacos/cache}"
-DOWNLOAD_BASE_URL="https://download.nacos.io/nacos-server"
+DOWNLOAD_BASE_URL="https://download.nacos.io"
 REFERER_URL="https://nacos.io/download/nacos-server/?spm=nacos_install"
 
 # ============================================================================
@@ -57,7 +57,7 @@ get_latest_version() {
 download_nacos() {
     local version=$1
     local zip_filename="nacos-server-${version}.zip"
-    local download_url="${DOWNLOAD_BASE_URL}/${zip_filename}?spm=nacos_install&file=${zip_filename}"
+    local download_url="${DOWNLOAD_BASE_URL}/nacos-server-${version}.zip"
     local cached_file="$CACHE_DIR/$zip_filename"
     
     # Create cache directory
@@ -266,5 +266,109 @@ cleanup_temp_dir() {
     if [ -n "$temp_dir" ] && [ -d "$temp_dir" ]; then
         print_info "Cleaning up temporary files..."
         rm -rf "$temp_dir"
+    fi
+}
+# ============================================================================
+# Nacos CLI Download Functions
+# ============================================================================
+
+# Download Nacos CLI package (with caching)
+# Parameters: version, [os], [arch]
+# Returns: path to zip file (in cache) or empty on error
+# Note: If os/arch not provided, auto-detect from system
+download_nacos_cli() {
+    local version=$1
+    local os=${2:-}
+    local arch=${3:-}
+    
+    # Auto-detect OS and architecture if not provided
+    if [ -z "$os" ] || [ -z "$arch" ]; then
+        # Detect OS
+        if [ -z "$os" ]; then
+            case "$(uname -s)" in
+                Linux*)
+                    os="linux"
+                    ;;
+                Darwin*)
+                    os="macos"
+                    ;;
+                CYGWIN*|MINGW*|MSYS*)
+                    os="windows"
+                    ;;
+                *)
+                    print_error "Unsupported OS: $(uname -s)" >&2
+                    return 1
+                    ;;
+            esac
+        fi
+        
+        # Detect architecture
+        if [ -z "$arch" ]; then
+            case "$(uname -m)" in
+                x86_64|amd64)
+                    arch="amd64"
+                    ;;
+                aarch64|arm64)
+                    arch="arm64"
+                    ;;
+                armv7l|armv7)
+                    arch="arm"
+                    ;;
+                *)
+                    print_error "Unsupported architecture: $(uname -m)" >&2
+                    return 1
+                    ;;
+            esac
+        fi
+    fi
+    
+    local zip_filename="nacos-cli-${version}-${os}-${arch}.zip"
+    local download_url="${DOWNLOAD_BASE_URL}/nacos-cli-${version}-${os}-${arch}.zip"
+    local cached_file="$CACHE_DIR/$zip_filename"
+    
+    # Create cache directory
+    mkdir -p "$CACHE_DIR" 2>/dev/null
+    
+    # Check if cached file exists and is valid
+    if [ -f "$cached_file" ] && [ -s "$cached_file" ]; then
+        # Verify the cached zip file is valid
+        if unzip -t "$cached_file" >/dev/null 2>&1; then
+            print_info "Found cached package: $cached_file" >&2
+            print_info "Skipping download, using cached file" >&2
+            echo "" >&2
+            echo "$cached_file"
+            return 0
+        else
+            print_warn "Cached file is corrupted, re-downloading..." >&2
+            rm -f "$cached_file"
+        fi
+    fi
+    
+    # Download the file
+    print_info "Downloading Nacos CLI version: $version (${os}-${arch})" >&2
+    print_info "Download URL: $download_url" >&2
+    echo "" >&2
+    
+    # Download with progress bar
+    if curl -fL -# -o "$cached_file" "$download_url" >&2; then
+        echo "" >&2
+        
+        # Verify downloaded file is a valid zip
+        if ! unzip -t "$cached_file" >/dev/null 2>&1; then
+            print_error "Downloaded file is corrupted or invalid" >&2
+            rm -f "$cached_file"
+            return 1
+        fi
+        
+        print_info "Download completed: $zip_filename" >&2
+        echo "$cached_file"
+        return 0
+    else
+        echo "" >&2
+        print_error "Failed to download Nacos CLI $version" >&2
+        print_info "Please check if version $version exists for ${os}-${arch}" >&2
+        print_info "Available packages: https://github.com/alibaba/nacos/releases" >&2
+        rm -f "$cached_file"
+        return 1
     fi
 }

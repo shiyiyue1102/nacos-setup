@@ -29,7 +29,7 @@ sudo bash install.sh
 ### 方式 2：一键在线安装
 
 ```bash
-curl -fsSL https://your-domain.com/install.sh | sudo bash
+ curl -fsSL https://nacos.io/nacos-installer.sh | sudo bash
 ```
 
 ### 验证安装

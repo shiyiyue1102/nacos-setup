@@ -31,8 +31,9 @@ print_error() {
 # ============================================================================
 # Configuration
 # ============================================================================
+DOWNLOAD_BASE_URL="https://download.nacos.io"
 
-REMOTE_DOWNLOAD_URL="https://nacos.io/download/nacos-server/nacos-setup-VERSION.zip"
+REMOTE_DOWNLOAD_URL="https://download.nacos.io/nacos-setup-{version}.zip"
 INSTALL_BASE_DIR="/usr/local"
 CURRENT_LINK="nacos-setup"
 BIN_DIR="/usr/local/bin"
@@ -141,7 +142,7 @@ download_file() {
 download_nacos_setup() {
     local version=$1
     local zip_filename="nacos-setup-${version}.zip"
-    local download_url="${REMOTE_DOWNLOAD_URL/VERSION/$version}"
+    local download_url="${REMOTE_DOWNLOAD_URL/{version}/$version}"
     local cached_file="$CACHE_DIR/$zip_filename"
     
     # Create cache directory
