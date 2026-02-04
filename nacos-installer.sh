@@ -32,7 +32,9 @@ print_error() {
 # Configuration
 # ============================================================================
 
-REMOTE_DOWNLOAD_URL="https://nacos.io/download/nacos-server/nacos-setup-VERSION.zip"
+DOWNLOAD_BASE_URL="https://download.nacos.io"
+# nacos-setup version configuration
+NACOS_SETUP_VERSION="${NACOS_SETUP_VERSION:-0.0.1}"
 # nacos-cli configuration
 NACOS_CLI_VERSION="${NACOS_CLI_VERSION:-0.0.1}"
 INSTALL_BASE_DIR="/usr/local"
@@ -41,14 +43,6 @@ BIN_DIR="/usr/local/bin"
 SCRIPT_NAME="nacos-setup"
 TEMP_DIR="/tmp/nacos-setup-install-$$"
 CACHE_DIR="${HOME}/.nacos/cache"  # 缓存目录
-
-# Detect installation mode
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-if [ -f "$SCRIPT_DIR/nacos-setup.sh" ] && [ -d "$SCRIPT_DIR/lib" ]; then
-    INSTALL_MODE="local"
-else
-    INSTALL_MODE="remote"
-fi
 
 # ============================================================================
 # Check Requirements
@@ -64,37 +58,44 @@ check_requirements() {
         exit 1
     fi
     
-    # Check for required commands (only for remote mode)
-    if [ "$INSTALL_MODE" = "remote" ]; then
-        local missing_commands=()
-        
-        if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
-            missing_commands+=("curl or wget")
-        fi
-        
-        if ! command -v unzip >/dev/null 2>&1; then
-            missing_commands+=("unzip")
-        fi
-        
-        if [ ${#missing_commands[@]} -gt 0 ]; then
-            print_error "Missing required commands: ${missing_commands[*]}"
-            echo ""
-            print_info "Please install missing commands:"
-            if [[ "$OSTYPE" == "darwin"* ]]; then
-                echo "  brew install curl unzip"
-            else
-                echo "  sudo apt-get install curl unzip  # Debian/Ubuntu"
-                echo "  sudo yum install curl unzip      # CentOS/RHEL"
-            fi
-            return 1
-        fi
+    # Check for required commands
+    local missing_commands=()
+    
+    if ! command -v curl >/dev/null 2>&1 && ! command -v wget >/dev/null 2>&1; then
+        missing_commands+=("curl or wget")
     fi
     
-    # Check if we have write permission to base install directory
-    if [ ! -w "$INSTALL_BASE_DIR" ]; then
-        print_warn "No write permission to $INSTALL_BASE_DIR"
-        print_warn "You may need to run with sudo"
+    if ! command -v unzip >/dev/null 2>&1; then
+        missing_commands+=("unzip")
+    fi
+    
+    if [ ${#missing_commands[@]} -gt 0 ]; then
+        print_error "Missing required commands: ${missing_commands[*]}"
+        echo ""
+        print_info "Please install missing commands:"
+        if [[ "$OSTYPE" == "darwin"* ]]; then
+            echo "  brew install curl unzip"
+        else
+            echo "  sudo apt-get install curl unzip  # Debian/Ubuntu"
+            echo "  sudo yum install curl unzip      # CentOS/RHEL"
+        fi
         return 1
+    fi
+    
+    # Check if we have write permission to install directory
+    local mode="${1:-full}"
+    if [[ "$mode" == "onlycli" ]]; then
+        if [ ! -w "$BIN_DIR" ]; then
+            print_warn "No write permission to $BIN_DIR"
+            print_warn "You may need to run with sudo"
+            return 1
+        fi
+    else
+        if [ ! -w "$INSTALL_BASE_DIR" ]; then
+            print_warn "No write permission to $INSTALL_BASE_DIR"
+            print_warn "You may need to run with sudo"
+            return 1
+        fi
     fi
     
     return 0
@@ -108,25 +109,25 @@ download_file() {
     local url=$1
     local output=$2
     
-    print_info "Downloading from $url..."
+    print_info "Downloading from $url..." >&2
     
     # Try curl first, then wget
     if command -v curl >/dev/null 2>&1; then
         if curl -fSL --progress-bar "$url" -o "$output"; then
             return 0
         else
-            print_error "Download failed with curl"
+            print_error "Download failed with curl" >&2
             return 1
         fi
     elif command -v wget >/dev/null 2>&1; then
         if wget -q --show-progress "$url" -O "$output"; then
             return 0
         else
-            print_error "Download failed with wget"
+            print_error "Download failed with wget" >&2
             return 1
         fi
     else
-        print_error "Neither curl nor wget is available"
+        print_error "Neither curl nor wget is available" >&2
         return 1
     fi
 }
@@ -137,7 +138,7 @@ download_file() {
 download_nacos_setup() {
     local version=$1
     local zip_filename="nacos-setup-${version}.zip"
-    local download_url="${REMOTE_DOWNLOAD_URL/VERSION/$version}"
+    local download_url="${DOWNLOAD_BASE_URL}/nacos-setup-${version}.zip"
     local cached_file="$CACHE_DIR/$zip_filename"
     
     # Create cache directory
@@ -147,37 +148,90 @@ download_nacos_setup() {
     if [ -f "$cached_file" ] && [ -s "$cached_file" ]; then
         # Verify the cached zip file is valid
         if unzip -t "$cached_file" >/dev/null 2>&1; then
-            print_info "Found cached package: $cached_file"
-            print_info "Skipping download, using cached file"
-            echo ""
+            print_info "Found cached package: $cached_file" >&2
+            print_info "Skipping download, using cached file" >&2
+            echo "" >&2
             echo "$cached_file"
             return 0
         else
-            print_warn "Cached file is corrupted, re-downloading..."
+            print_warn "Cached file is corrupted, re-downloading..." >&2
             rm -f "$cached_file"
         fi
     fi
     
     # Download the file to cache
-    print_info "Downloading nacos-setup version: $version"
-    echo ""
+    print_info "Downloading nacos-setup version: $version" >&2
+    echo "" >&2
     
     if ! download_file "$download_url" "$cached_file"; then
-        print_error "Failed to download nacos-setup"
+        print_error "Failed to download nacos-setup" >&2
         rm -f "$cached_file"
         return 1
     fi
     
-    echo ""
+    echo "" >&2
     
     # Verify downloaded file is a valid zip
     if ! unzip -t "$cached_file" >/dev/null 2>&1; then
-        print_error "Downloaded file is corrupted or invalid"
+        print_error "Downloaded file is corrupted or invalid" >&2
         rm -f "$cached_file"
         return 1
     fi
     
-    print_info "Download completed: $zip_filename"
+    print_info "Download completed: $zip_filename" >&2
+    echo "$cached_file"
+    return 0
+}
+
+# Download nacos-cli package with caching support
+# Parameters: version, os, arch
+# Returns: path to zip file (in cache) or empty on error
+download_nacos_cli() {
+    local version=$1
+    local os=$2
+    local arch=$3
+    local zip_filename="nacos-cli-${version}-${os}-${arch}.zip"
+    local download_url="${DOWNLOAD_BASE_URL}/${zip_filename}"
+    local cached_file="$CACHE_DIR/$zip_filename"
+    
+    # Create cache directory
+    mkdir -p "$CACHE_DIR" 2>/dev/null
+    
+    # Check if cached file exists and is valid
+    if [ -f "$cached_file" ] && [ -s "$cached_file" ]; then
+        # Verify the cached zip file is valid
+        if unzip -t "$cached_file" >/dev/null 2>&1; then
+            print_info "Found cached package: $cached_file" >&2
+            print_info "Skipping download, using cached file" >&2
+            echo "" >&2
+            echo "$cached_file"
+            return 0
+        else
+            print_warn "Cached file is corrupted, re-downloading..." >&2
+            rm -f "$cached_file"
+        fi
+    fi
+    
+    # Download the file to cache
+    print_info "Downloading nacos-cli version: $version" >&2
+    echo "" >&2
+    
+    if ! download_file "$download_url" "$cached_file"; then
+        print_error "Failed to download nacos-cli" >&2
+        rm -f "$cached_file"
+        return 1
+    fi
+    
+    echo "" >&2
+    
+    # Verify downloaded file is a valid zip
+    if ! unzip -t "$cached_file" >/dev/null 2>&1; then
+        print_error "Downloaded file is corrupted or invalid" >&2
+        rm -f "$cached_file"
+        return 1
+    fi
+    
+    print_info "Download completed: $zip_filename" >&2
     echo "$cached_file"
     return 0
 }
@@ -190,86 +244,59 @@ install_nacos_setup() {
     print_info "Installing nacos-setup..."
     echo ""
     
-    local extracted_dir=""
-    local setup_version=""
-    local INSTALL_DIR=""
+    # Get version from environment variable or use default
+    local setup_version="${NACOS_SETUP_VERSION}"
     
-    if [ "$INSTALL_MODE" = "local" ]; then
-        # Local installation mode
-        print_info "Installation mode: Local"
-        
-        # Detect version from nacos-setup.sh
-        if [ -f "$SCRIPT_DIR/nacos-setup.sh" ]; then
-            setup_version=$(grep '^NACOS_SETUP_VERSION=' "$SCRIPT_DIR/nacos-setup.sh" | cut -d'"' -f2)
-            if [ -z "$setup_version" ]; then
-                # Fallback: try to extract from comment
-                setup_version=$(grep '# Version:' "$SCRIPT_DIR/nacos-setup.sh" | head -1 | awk '{print $3}')
-            fi
-            if [ -z "$setup_version" ]; then
-                setup_version="unknown"
-            fi
-        fi
-        
-        print_info "Detected version: $setup_version"
-        extracted_dir="$SCRIPT_DIR"
-        INSTALL_DIR="$INSTALL_BASE_DIR/${CURRENT_LINK}-$setup_version"
-        
-    else
-        # Remote installation mode
-        print_info "Installation mode: Remote"
-        
-        # Use default version or detect from URL
-        setup_version="0.0.1"
-        
-        print_info "Target version: $setup_version"
-        
-        # Download nacos-setup (with caching)
-        local zip_file=$(download_nacos_setup "$setup_version")
-        
-        if [ -z "$zip_file" ]; then
-            print_error "Failed to download nacos-setup"
-            exit 1
-        fi
-        
-        print_success "Package ready: $zip_file"
-        echo ""
-        
-        # Create temporary directory for extraction
-        mkdir -p "$TEMP_DIR"
-        
-        # Extract zip file
-        print_info "Extracting nacos-setup..."
-        if ! unzip -q "$zip_file" -d "$TEMP_DIR"; then
-            print_error "Failed to extract zip file"
-            rm -rf "$TEMP_DIR"
-            exit 1
-        fi
-        
-        # Find extracted directory (should be nacos-setup-VERSION or similar)
-        extracted_dir=$(find "$TEMP_DIR" -maxdepth 1 -type d ! -path "$TEMP_DIR" | head -1)
-        
-        if [ -z "$extracted_dir" ] || [ ! -d "$extracted_dir" ]; then
-            print_error "Failed to find extracted directory"
-            rm -rf "$TEMP_DIR"
-            exit 1
-        fi
+    print_info "Target version: $setup_version"
+    
+    # Download nacos-setup (with caching)
+    # If cached version exists, it will be used directly
+    # If not, download from remote and save to cache
+    local zip_file=$(download_nacos_setup "$setup_version")
+    
+    if [ -z "$zip_file" ]; then
+        print_error "Failed to download nacos-setup"
+        exit 1
+    fi
+    
+    print_success "Package ready: $zip_file"
+    echo ""
+    
+    # Create temporary directory for extraction
+    mkdir -p "$TEMP_DIR"
+    
+    # Extract zip file
+    print_info "Extracting nacos-setup..."
+    if ! unzip -q "$zip_file" -d "$TEMP_DIR"; then
+        print_error "Failed to extract zip file"
+        rm -rf "$TEMP_DIR"
+        exit 1
+    fi
+    
+    # Find extracted directory (should be nacos-setup-VERSION or similar)
+    local extracted_dir=$(find "$TEMP_DIR" -maxdepth 1 -type d ! -path "$TEMP_DIR" | head -1)
+    
+    if [ -z "$extracted_dir" ] || [ ! -d "$extracted_dir" ]; then
+        print_error "Failed to find extracted directory"
+        rm -rf "$TEMP_DIR"
+        exit 1
     fi
     
     # Verify required files
     if [ ! -f "$extracted_dir/nacos-setup.sh" ]; then
         print_error "nacos-setup.sh not found in package"
-        [ "$INSTALL_MODE" = "remote" ] && rm -rf "$TEMP_DIR"
+        rm -rf "$TEMP_DIR"
         exit 1
     fi
     
     if [ ! -d "$extracted_dir/lib" ]; then
         print_error "lib directory not found in package"
-        [ "$INSTALL_MODE" = "remote" ] && rm -rf "$TEMP_DIR"
+        rm -rf "$TEMP_DIR"
         exit 1
     fi
     
     # Prepare versioned installation directory
-    INSTALL_DIR="$INSTALL_BASE_DIR/${CURRENT_LINK}-$setup_version"
+    local INSTALL_DIR="$INSTALL_BASE_DIR/${CURRENT_LINK}-$setup_version"
 
     # Remove old installation for this version if exists
     if [ -d "$INSTALL_DIR" ]; then
@@ -307,10 +334,8 @@ install_nacos_setup() {
     fi
     ln -s "$INSTALL_BASE_DIR/$CURRENT_LINK/bin/$SCRIPT_NAME" "$BIN_DIR/$SCRIPT_NAME"
     
-    # Cleanup temporary directory (only for remote mode)
-    if [ "$INSTALL_MODE" = "remote" ]; then
-        rm -rf "$TEMP_DIR"
-    fi
+    # Cleanup temporary directory
+    rm -rf "$TEMP_DIR"
     
     # Store version info
     echo "$setup_version" > "$INSTALL_DIR/.version"
@@ -371,29 +396,26 @@ install_nacos_cli() {
             return 1
             ;;
     esac
-
-    local url="https://nacos.io/download/nacos-cli-${version}-${os}-${arch}.zip"
+    local url="${DOWNLOAD_BASE_URL}/nacos-cli-${version}-${os}-${arch}.zip"
     local zip_filename="nacos-cli-${version}-${os}-${arch}.zip"
+    
+    # Download nacos-cli (with caching)
+    local zip_file=$(download_nacos_cli "$version" "$os" "$arch")
+    
+    if [ -z "$zip_file" ]; then
+        print_error "Failed to download nacos-cli"
+        return 1
+    fi
+    
+    print_success "Package ready: $zip_file"
+    echo ""
+    
+    # Create temporary directory for extraction
     local tmp_dir
-    tmp_dir=$(mktemp -d "/tmp/nacos-cli-install-$$.XXXXXX") || {
-        print_error "Failed to create temp directory for nacos-cli download"
+    tmp_dir=$(mktemp -d "/tmp/nacos-cli-extract-$$.XXXXXX") || {
+        print_error "Failed to create temp directory for nacos-cli extraction"
         return 1
     }
-    local zip_file="$tmp_dir/$zip_filename"
-
-    print_info "Downloading nacos-cli from $url..."
-    if ! download_file "$url" "$zip_file"; then
-        print_error "Failed to download nacos-cli package"
-        rm -rf "$tmp_dir"
-        return 1
-    fi
-
-    # Verify downloaded file is a valid zip
-    if ! unzip -t "$zip_file" >/dev/null 2>&1; then
-        print_error "Downloaded file is corrupted or invalid"
-        rm -rf "$tmp_dir"
-        return 1
-    fi
 
     # Extract zip file
     print_info "Extracting nacos-cli..."
@@ -463,6 +485,17 @@ install_nacos_cli() {
         fi
     fi
 
+    # On macOS, add ad-hoc signature to avoid Gatekeeper killing the binary
+    if [[ "$os" == "darwin" ]]; then
+        if command -v codesign >/dev/null 2>&1; then
+            if ! codesign --force --deep --sign - "$BIN_DIR/$target_binary_name" >/dev/null 2>&1; then
+                print_warn "Failed to codesign nacos-cli (may be blocked by Gatekeeper): $BIN_DIR/$target_binary_name"
+            fi
+        else
+            print_warn "codesign not found; nacos-cli may be blocked by Gatekeeper"
+        fi
+    fi
+
     # Cleanup
     rm -rf "$tmp_dir"
 
@@ -496,6 +529,7 @@ verify_installation() {
     
     return 0
 }
+
 
 # ============================================================================
 # Post-installation Info
@@ -601,6 +635,7 @@ main() {
     echo ""
     
     # Parse arguments
+    local install_mode="full"
     case "${1:-}" in
         version|--version|-v)
             check_installed_version
@@ -610,38 +645,63 @@ main() {
             uninstall_nacos_setup
             exit 0
             ;;
+        onlycli|--onlycli|--only-cli)
+            install_mode="onlycli"
+            ;;
         --help|-h)
             echo "Usage: bash install.sh [OPTION]"
             echo ""
             echo "Options:"
-            echo "  (none)              Install nacos-setup (local or remote)"
+            echo "  (none)              Install nacos-setup"
+            echo "  onlycli             Install nacos-cli only"
             echo "  version, -v         Show installed version"
             echo "  uninstall, -u       Uninstall nacos-setup"
             echo "  --help, -h          Show this help message"
-            echo ""
-            echo "Installation Modes:"
-            echo "  Local:  Run from nacos-setup source directory"
-            echo "  Remote: Download from https://nacos.io"
             echo ""
             exit 0
             ;;
     esac
     
+    if [[ "$install_mode" == "onlycli" ]]; then
+        if ! check_requirements "onlycli"; then
+            print_error "Requirements check failed"
+            print_info "Try running with sudo: sudo bash nacos-installer.sh onlycli"
+            exit 1
+        fi
+
+        install_nacos_cli
+
+        if ! command -v nacos-cli >/dev/null 2>&1; then
+            print_warn "nacos-cli not found in PATH"
+            print_warn "Please add $BIN_DIR to your PATH"
+            print_warn "Add this to your ~/.bashrc or ~/.zshrc:"
+            echo ""
+            echo "    export PATH=\"$BIN_DIR:\$PATH\""
+            echo ""
+        fi
+
+        exit 0
+    fi
+
     # Check requirements
     if ! check_requirements; then
         print_error "Requirements check failed"
         print_info "Try running with sudo: sudo bash install.sh"
         exit 1
     fi
-    
+
     # Install
     install_nacos_setup
-    
+
     # Verify
     if verify_installation; then
         print_usage_info
 
-        # After successful installer setup, offer to install Nacos (default version)
+        # Install nacos-cli
+        echo ""
+        install_nacos_cli
+
+        # After nacos-cli installation, offer to install Nacos (default version)
         echo ""
         # Try to detect default Nacos version from installed script
         detected_default_version="3.1.1"
@@ -666,17 +726,6 @@ main() {
             fi
         else
             print_info "Skipping Nacos installation. You can run: $SCRIPT_NAME -v $detected_default_version"
-        fi
-
-        # After Nacos installation, offer to install nacos-cli
-        echo ""
-        local cli_version="${NACOS_CLI_VERSION}"
-        read -p "Do you want to install nacos-cli ${cli_version} now? (Y/n): " -r REPLY_CLI
-        echo ""
-        if [[ "$REPLY_CLI" =~ ^[Yy]?$ ]] || [[ -z "$REPLY_CLI" ]]; then
-            install_nacos_cli
-        else
-            print_info "Skipping nacos-cli installation. You can install it later by re-running this installer."
         fi
 
         exit 0
