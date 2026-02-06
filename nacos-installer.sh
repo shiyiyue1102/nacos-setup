@@ -340,6 +340,17 @@ install_nacos_setup() {
     # Store version info
     echo "$setup_version" > "$INSTALL_DIR/.version"
     
+    # Fix permissions for Nacos installation directory
+    # Allow current user to manage Nacos instances without sudo
+    local nacos_base_dir="${HOME}/ai-infra/nacos"
+    if [ -d "$nacos_base_dir" ]; then
+        print_info "Setting ownership of Nacos directory to current user..."
+        if ! sudo chown -R "$USER:$(id -gn)" "$nacos_base_dir" 2>/dev/null; then
+            print_warn "Failed to change ownership of $nacos_base_dir"
+            print_info "You can fix this manually with: sudo chown -R \$USER:\$(id -gn) $nacos_base_dir"
+        fi
+    fi
+    
     print_success "Installation completed!"
     echo ""
     
@@ -515,13 +526,14 @@ verify_installation() {
     fi
     
     if ! command -v $SCRIPT_NAME >/dev/null 2>&1; then
-        print_error "Command not found in PATH"
+        print_warn "Command not found in PATH"
         print_warn "Please add $BIN_DIR to your PATH"
         print_warn "Add this to your ~/.bashrc or ~/.zshrc:"
         echo ""
         echo "    export PATH=\"$BIN_DIR:\$PATH\""
         echo ""
-        return 1
+        # Do not fail verification if only PATH is missing
+        return 0
     fi
     
     print_success "Installation verified successfully!"
@@ -635,7 +647,8 @@ main() {
     echo ""
     
     # Parse arguments
-    local install_mode="full"
+    local install_cli=false
+    local only_cli=false
     case "${1:-}" in
         version|--version|-v)
             check_installed_version
@@ -645,15 +658,16 @@ main() {
             uninstall_nacos_setup
             exit 0
             ;;
-        onlycli|--onlycli|--only-cli)
-            install_mode="onlycli"
+        --cli)
+            install_cli=true
+            only_cli=true
             ;;
         --help|-h)
-            echo "Usage: bash install.sh [OPTION]"
+            echo "Usage: bash nacos-installer.sh [OPTION]"
             echo ""
             echo "Options:"
-            echo "  (none)              Install nacos-setup"
-            echo "  onlycli             Install nacos-cli only"
+            echo "  (none)              Install nacos-setup only"
+            echo "  --cli               Install nacos-cli only"
             echo "  version, -v         Show installed version"
             echo "  uninstall, -u       Uninstall nacos-setup"
             echo "  --help, -h          Show this help message"
@@ -662,32 +676,17 @@ main() {
             ;;
     esac
     
-    if [[ "$install_mode" == "onlycli" ]]; then
-        if ! check_requirements "onlycli"; then
-            print_error "Requirements check failed"
-            print_info "Try running with sudo: sudo bash nacos-installer.sh onlycli"
-            exit 1
-        fi
-
-        install_nacos_cli
-
-        if ! command -v nacos-cli >/dev/null 2>&1; then
-            print_warn "nacos-cli not found in PATH"
-            print_warn "Please add $BIN_DIR to your PATH"
-            print_warn "Add this to your ~/.bashrc or ~/.zshrc:"
-            echo ""
-            echo "    export PATH=\"$BIN_DIR:\$PATH\""
-            echo ""
-        fi
-
-        exit 0
+    # Check requirements
+    if ! check_requirements "${only_cli:+onlycli}"; then
+        print_error "Requirements check failed"
+        print_info "Try running with sudo: sudo bash nacos-installer.sh"
+        exit 1
     fi
 
-    # Check requirements
-    if ! check_requirements; then
-        print_error "Requirements check failed"
-        print_info "Try running with sudo: sudo bash install.sh"
-        exit 1
+    if [[ "$only_cli" == true ]]; then
+        echo ""
+        install_nacos_cli
+        exit $?
     fi
 
     # Install
@@ -697,11 +696,13 @@ main() {
     if verify_installation; then
         print_usage_info
 
-        # Install nacos-cli
-        echo ""
-        install_nacos_cli
+        # Install nacos-cli if --cli flag is provided
+        if [[ "$install_cli" == true ]]; then
+            echo ""
+            install_nacos_cli
+        fi
 
-        # After nacos-cli installation, offer to install Nacos (default version)
+        # After installation, offer to install Nacos (default version)
         echo ""
         # Try to detect default Nacos version from installed script
         detected_default_version="3.1.1"
