@@ -60,7 +60,7 @@ rm -rf "$TMP_DIR"
 mkdir -p "$TMP_DIR/$NAME"
 
 # Files/dirs to include - adjust as needed
-INCLUDE=("nacos-setup.sh" "lib" "README.md" "LICENSE")
+INCLUDE=("nacos-setup.sh" "lib" "README.md" "LICENSE" "windows")
 
 for f in "${INCLUDE[@]}"; do
     if [ -e "$PROJECT_ROOT/$f" ]; then

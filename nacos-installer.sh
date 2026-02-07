@@ -329,6 +329,8 @@ install_nacos_setup() {
     ln -s "nacos-setup-$setup_version" "$INSTALL_BASE_DIR/$CURRENT_LINK"
 
     print_info "Creating global command..."
+    # Ensure bin directory exists
+    mkdir -p "$BIN_DIR"
     if [ -L "$BIN_DIR/$SCRIPT_NAME" ] || [ -f "$BIN_DIR/$SCRIPT_NAME" ]; then
         rm -f "$BIN_DIR/$SCRIPT_NAME"
     fi
