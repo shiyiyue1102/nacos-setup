@@ -19,8 +19,8 @@ If version is not provided, the script will try to detect it from:
   2) git describe --tags --always
 
 Output: 
-  ./dist/nacos-setup-Linux-VERSION.zip
-  ./dist/nacos-setup-Windows-VERSION.zip
+  ./dist/nacos-setup-VERSION.zip (Linux/macOS)
+  ./dist/nacos-setup-windows-VERSION.zip
 EOF
 }
 
@@ -54,10 +54,10 @@ DIST_DIR="$PROJECT_ROOT/dist"
 mkdir -p "$DIST_DIR"
 
 # ====================
-# Package Linux version
+# Package Linux version (also for macOS)
 # ====================
 package_linux() {
-    local name="nacos-setup-Linux-$VERSION"
+    local name="nacos-setup-$VERSION"
     local tmp_dir="/tmp/${name}-package-$$"
     
     print "Packaging Linux version: $VERSION"
@@ -110,7 +110,7 @@ package_linux() {
 # Package Windows version
 # ====================
 package_windows() {
-    local name="nacos-setup-Windows-$VERSION"
+    local name="nacos-setup-windows-$VERSION"
     local tmp_dir="/tmp/${name}-package-$$"
     
     print "Packaging Windows version: $VERSION"

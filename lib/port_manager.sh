@@ -45,10 +45,32 @@ check_port_available() {
         if ss -ltn | grep -E ":${port}[[:space:]]" >/dev/null 2>&1; then
             return 1  # Port is in use
         fi
+    elif [ -f /proc/net/tcp ]; then
+        # Linux: check /proc/net/tcp directly
+        # Convert port to hex
+        local port_hex=$(printf '%04X' $port)
+        if grep -q "^[^:]*:[0-9A-Fa-f]*:${port_hex}" /proc/net/tcp 2>/dev/null; then
+            return 1  # Port is in use
+        fi
+    elif command -v nc &> /dev/null; then
+        # Use netcat to test port availability
+        # Try to connect, if successful, port is in use
+        if nc -z localhost $port 2>/dev/null; then
+            return 1  # Port is in use
+        fi
+    elif command -v python3 &> /dev/null || command -v python &> /dev/null; then
+        # Use Python socket to test port
+        local python_cmd=$(command -v python3 2>/dev/null || command -v python 2>/dev/null)
+        if $python_cmd -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', $port)); s.close()" 2>/dev/null; then
+            :  # Port available
+        else
+            return 1  # Port is in use
+        fi
     else
-        # No port checking tool available, assume port is free
-        print_warn "Cannot check port $port availability (lsof/netstat/ss not found)"
-        return 0
+        # Try bash built-in /dev/tcp as last resort
+        if (echo > /dev/tcp/localhost/$port) 2>/dev/null; then
+            return 1  # Port is in use
+        fi
     fi
     
     return 0  # Port is available
@@ -77,12 +99,31 @@ get_port_pid() {
                 fi
             done
         fi
+    elif command -v fuser &> /dev/null; then
+        # Use fuser to find PID (Linux)
+        pid=$(fuser $port/tcp 2>/dev/null | tr -d ' ')
     elif command -v netstat &> /dev/null; then
         # Try to extract PID from netstat
         local netstat_line=$(netstat -tulpn 2>/dev/null | grep -E ":${port}[[:space:]]" | head -1)
         if [ -n "$netstat_line" ]; then
             local col7=$(echo "$netstat_line" | awk '{print $7}')
             pid="${col7%%/*}"
+        fi
+    elif [ -f /proc/net/tcp ] && [ -d /proc ]; then
+        # Linux: parse /proc/net/tcp to find inode, then find PID
+        local port_hex=$(printf '%04X' $port)
+        local inode=$(grep "^[^:]*:[0-9A-Fa-f]*:${port_hex}" /proc/net/tcp 2>/dev/null | awk '{print $10}')
+        if [ -n "$inode" ] && [ "$inode" != "0" ]; then
+            # Search for this inode in process file descriptors
+            for fd in /proc/[0-9]*/fd/*; do
+                if [ -L "$fd" ]; then
+                    local link=$(readlink "$fd" 2>/dev/null)
+                    if [ "$link" = "socket:[$inode]" ]; then
+                        pid=$(echo "$fd" | cut -d'/' -f3)
+                        break
+                    fi
+                fi
+            done
         fi
     fi
     

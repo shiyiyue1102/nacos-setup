@@ -133,6 +133,9 @@ apply_security_config() {
         return 1
     fi
     
+    # Backup config file before modification
+    backup_config_file "$config_file"
+    
     # Enable authentication
     update_config_property "$config_file" "nacos.core.auth.enabled" "true"
     update_config_property "$config_file" "nacos.core.auth.plugin.nacos.token.secret.key" "$token_secret"
@@ -335,6 +338,9 @@ update_port_config() {
     local server_port=$2
     local console_port=$3
     local nacos_version=$4
+    
+    # Backup config file before modification
+    backup_config_file "$config_file"
     
     local nacos_major=$(echo "$nacos_version" | cut -d. -f1)
     

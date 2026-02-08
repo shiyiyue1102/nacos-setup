@@ -531,8 +531,8 @@ join_cluster() {
         exit 1
     fi
     
-    # Find existing nodes
-    local existing_nodes=($(ls -d "$cluster_dir/"[0-9]*"-v"* 2>/dev/null | xargs -n1 basename | sort))
+    # Find existing nodes - use version sort to handle numeric prefixes correctly
+    local existing_nodes=($(ls -d "$cluster_dir/"[0-9]*"-v"* 2>/dev/null | xargs -n1 basename | sort -t'-' -k1,1n))
     
     if [ ${#existing_nodes[@]} -eq 0 ]; then
         print_error "No existing nodes found"
@@ -689,8 +689,8 @@ leave_cluster() {
         exit 1
     fi
     
-    # Find target node
-    local existing_nodes=($(ls -d "$cluster_dir/"[0-9]*"-v"* 2>/dev/null | xargs -n1 basename | sort))
+    # Find target node - use version sort to handle numeric prefixes correctly
+    local existing_nodes=($(ls -d "$cluster_dir/"[0-9]*"-v"* 2>/dev/null | xargs -n1 basename | sort -t'-' -k1,1n))
     local target_node=""
     
     for node in "${existing_nodes[@]}"; do

@@ -137,17 +137,28 @@ extract_nacos_to_temp() {
     fi
     
     # Find the extracted directory
-    local extracted_dir=$(find "$tmp_dir" -mindepth 1 -maxdepth 1 -type d -name "nacos" 2>/dev/null | head -1)
+    # First try to find a directory named "nacos"
+    local extracted_dir=$(find "$tmp_dir" -mindepth 1 -maxdepth 2 -type d -name "nacos" 2>/dev/null | head -1)
+    
+    # If not found, look for any directory containing bin/conf subdirectories
+    if [ -z "$extracted_dir" ]; then
+        while IFS= read -r dir; do
+            if [ -d "$dir/bin" ] && [ -d "$dir/conf" ]; then
+                extracted_dir="$dir"
+                break
+            fi
+        done < <(find "$tmp_dir" -mindepth 1 -maxdepth 2 -type d 2>/dev/null)
+    fi
     
     if [ -z "$extracted_dir" ]; then
-        print_error "Could not find extracted Nacos directory" >&2
+        print_error "Could not find extracted Nacos directory with valid structure" >&2
         rm -rf "$tmp_dir"
         return 1
     fi
     
     # Verify structure
     if [ ! -d "$extracted_dir/bin" ] || [ ! -d "$extracted_dir/conf" ]; then
-        print_error "Extracted Nacos directory has invalid structure" >&2
+        print_error "Extracted Nacos directory has invalid structure: $extracted_dir" >&2
         rm -rf "$tmp_dir"
         return 1
     fi

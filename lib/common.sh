@@ -117,7 +117,11 @@ get_local_ip() {
     
     case "$os_type" in
         macos)
-            ip=$(ifconfig | grep "inet " | grep -v "127.0.0.1" | awk '{print $2}' | head -1)
+            # Try ipconfig first (macOS native), then fallback to ifconfig
+            ip=$(ipconfig getifaddr en0 2>/dev/null || ipconfig getifaddr en1 2>/dev/null || ipconfig getifaddr en2 2>/dev/null)
+            if [ -z "$ip" ] && command -v ifconfig &> /dev/null; then
+                ip=$(ifconfig | grep "inet " | grep -v "127.0.0.1" | awk '{print $2}' | head -1)
+            fi
             ;;
         linux)
             if command -v ip &> /dev/null; then
@@ -207,6 +211,26 @@ get_java_search_paths() {
 # ============================================================================
 # Configuration Management
 # ============================================================================
+
+# Backup a configuration file before modification
+# Parameters: config_file
+# Returns: 0 on success, 1 on failure
+backup_config_file() {
+    local config_file=$1
+    
+    if [ ! -f "$config_file" ]; then
+        return 0  # Nothing to backup
+    fi
+    
+    local backup_file="${config_file}.backup.$(date +%Y%m%d_%H%M%S)"
+    if cp "$config_file" "$backup_file" 2>/dev/null; then
+        print_info "Config backed up to: $backup_file" >&2
+        return 0
+    else
+        print_warn "Failed to create backup of: $config_file" >&2
+        return 1
+    fi
+}
 
 # Update or add a property in configuration file
 update_config_property() {

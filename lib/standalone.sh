@@ -32,6 +32,12 @@ source "$SCRIPT_DIR/process_manager.sh"
 STARTED_NACOS_PID=""
 CLEANUP_DONE=false
 
+# Security configuration (set by configure_standalone_security)
+TOKEN_SECRET=""
+IDENTITY_KEY=""
+IDENTITY_VALUE=""
+NACOS_PASSWORD=""
+
 # ============================================================================
 # Cleanup Handler
 # ============================================================================
