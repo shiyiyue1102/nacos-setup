@@ -331,10 +331,32 @@ install_nacos_setup() {
     print_info "Creating global command..."
     # Ensure bin directory exists
     mkdir -p "$BIN_DIR"
+    
+    # Remove old symlink if exists
     if [ -L "$BIN_DIR/$SCRIPT_NAME" ] || [ -f "$BIN_DIR/$SCRIPT_NAME" ]; then
         rm -f "$BIN_DIR/$SCRIPT_NAME"
     fi
-    ln -s "$INSTALL_BASE_DIR/$CURRENT_LINK/bin/$SCRIPT_NAME" "$BIN_DIR/$SCRIPT_NAME"
+    
+    # Create symlink with absolute path
+    local target_script="$INSTALL_BASE_DIR/$CURRENT_LINK/bin/$SCRIPT_NAME"
+    
+    # Verify target exists before creating symlink
+    if [ ! -f "$target_script" ]; then
+        print_error "Target script not found: $target_script"
+        rm -rf "$TEMP_DIR"
+        exit 1
+    fi
+    
+    ln -s "$target_script" "$BIN_DIR/$SCRIPT_NAME"
+    
+    # Verify symlink was created successfully
+    if [ ! -L "$BIN_DIR/$SCRIPT_NAME" ]; then
+        print_error "Failed to create symlink at $BIN_DIR/$SCRIPT_NAME"
+        rm -rf "$TEMP_DIR"
+        exit 1
+    fi
+    
+    print_info "Global command created: $BIN_DIR/$SCRIPT_NAME -> $target_script"
     
     # Cleanup temporary directory
     rm -rf "$TEMP_DIR"
@@ -522,9 +544,20 @@ install_nacos_cli() {
 verify_installation() {
     print_info "Verifying installation..."
     
-    if [ ! -f "$BIN_DIR/$SCRIPT_NAME" ]; then
+    # Check if the symlink or file exists (use -e for both files and symlinks)
+    if [ ! -e "$BIN_DIR/$SCRIPT_NAME" ]; then
         print_error "Installation failed: $BIN_DIR/$SCRIPT_NAME not found"
         return 1
+    fi
+    
+    # Check if the symlink target exists
+    if [ -L "$BIN_DIR/$SCRIPT_NAME" ]; then
+        local target=$(readlink "$BIN_DIR/$SCRIPT_NAME")
+        if [ ! -e "$BIN_DIR/$SCRIPT_NAME" ]; then
+            print_error "Installation failed: Broken symlink at $BIN_DIR/$SCRIPT_NAME"
+            print_error "Target does not exist: $target"
+            return 1
+        fi
     fi
     
     if ! command -v $SCRIPT_NAME >/dev/null 2>&1; then
@@ -534,7 +567,13 @@ verify_installation() {
         echo ""
         echo "    export PATH=\"$BIN_DIR:\$PATH\""
         echo ""
-        # Do not fail verification if only PATH is missing
+        print_warn "Alternatively, reload your shell configuration:"
+        echo ""
+        echo "    source ~/.bashrc   # or source ~/.zshrc"
+        echo ""
+        # Do not fail verification if only PATH is missing - it's a common case
+        print_success "Installation completed (PATH configuration needed)"
+        echo ""
         return 0
     fi
     
