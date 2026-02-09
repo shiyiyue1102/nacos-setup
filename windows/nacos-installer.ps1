@@ -49,36 +49,64 @@ function Download-File($url, $output) {
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 
 # Get the actual user directory even when running as admin
-if ($isAdmin) {
-    # When running as admin, find the real user who invoked the script
-    $currentUserName = [System.Environment]::UserName
-    
-    # If we're running as SYSTEM, try to find the actual logged-in user
-    if ($currentUserName -eq 'SYSTEM' -or $env:USERPROFILE -match 'systemprofile') {
-        # Get the console user (who is actually logged in)
-        $loggedInUser = (Get-WmiObject -Class Win32_ComputerSystem).UserName
-        if ($loggedInUser -and $loggedInUser -match '\\(.+)$') {
-            $realUserProfile = "C:\Users\$($matches[1])"
-        } else {
-            # Fallback: get the most recently modified user profile
-            $profiles = Get-ChildItem "C:\Users" -Directory | Where-Object { 
-                $_.Name -notin @('Public', 'Default', 'Default User', 'All Users') -and
-                (Test-Path (Join-Path $_.FullName 'AppData'))
-            } | Sort-Object LastWriteTime -Descending
-            
-            if ($profiles) {
-                $realUserProfile = $profiles[0].FullName
-            } else {
-                Write-ErrorMsg "Cannot determine real user profile"
-                exit 1
+$realUserProfile = $env:USERPROFILE
+
+# If running as admin and USERPROFILE points to SYSTEM, try to find real user
+if ($isAdmin -and ($env:USERPROFILE -match 'systemprofile|system32')) {
+    try {
+        # Try to get the logged-in user from Win32_ComputerSystem
+        $computerSystem = Get-WmiObject -Class Win32_ComputerSystem -ErrorAction SilentlyContinue
+        if ($computerSystem -and $computerSystem.UserName) {
+            $userName = $computerSystem.UserName
+            # Extract just the username if it's in DOMAIN\USER format
+            if ($userName -match '\\(.+)$') {
+                $userName = $matches[1]
+            }
+            # Verify the user directory exists
+            $userDir = "C:\Users\$userName"
+            if (Test-Path $userDir) {
+                $realUserProfile = $userDir
             }
         }
-    } else {
-        # Running as admin but not as SYSTEM
-        $realUserProfile = $env:USERPROFILE
+    } catch {
+        # If WMI fails, try alternative methods
     }
-} else {
-    $realUserProfile = $env:USERPROFILE
+    
+    # If still not found, try to find from environment or registry
+    if ($realUserProfile -match 'systemprofile|system32') {
+        try {
+            # Try LOGONSERVER environment variable (works in some scenarios)
+            if ($env:USERNAME -and $env:USERNAME -ne 'SYSTEM') {
+                $userDir = "C:\Users\$env:USERNAME"
+                if (Test-Path $userDir) {
+                    $realUserProfile = $userDir
+                }
+            }
+        } catch {
+        }
+    }
+    
+    # Last resort: scan for most recently modified user profile
+    if ($realUserProfile -match 'systemprofile|system32') {
+        try {
+            $profiles = @(Get-ChildItem "C:\Users" -Directory -ErrorAction SilentlyContinue | 
+                Where-Object { 
+                    $_.Name -notin @('Public', 'Default', 'Default User', 'All Users') -and
+                    (Test-Path (Join-Path $_.FullName 'AppData'))
+                } | Sort-Object LastWriteTime -Descending)
+            
+            if ($profiles.Count -gt 0) {
+                $realUserProfile = $profiles[0].FullName
+            }
+        } catch {
+        }
+    }
+    
+    # Final check: if still couldn't determine, use a reasonable fallback
+    if ($realUserProfile -match 'systemprofile|system32') {
+        Write-Warn "Could not detect real user, using default install location"
+        $realUserProfile = "C:\Users\Administrator"
+    }
 }
 
 # Get real LocalAppData
