@@ -4,6 +4,46 @@
 $ErrorActionPreference = "Stop"
 
 # =============================
+# Helpers (Define early for use in initialization)
+# =============================
+function Write-Info($msg) { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
+function Write-Success($msg) { Write-Host "[SUCCESS] $msg" -ForegroundColor Green }
+function Write-Warn($msg) { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
+function Write-ErrorMsg($msg) { Write-Host "[ERROR] $msg" -ForegroundColor Red }
+
+function Ensure-Directory($path) {
+    if (-not (Test-Path $path)) { New-Item -ItemType Directory -Path $path | Out-Null }
+}
+
+function Add-ToUserPath($dir) {
+    $current = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ($current -and $current.Split(';') -contains $dir) { 
+        Write-Info "PATH already contains: $dir"
+        return 
+    }
+    $newPath = if ($current) { "$current;$dir" } else { $dir }
+    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+    Write-Success "Added to PATH: $dir"
+}
+
+function Refresh-SessionPath() {
+    # Refresh PATH in current session by combining Machine and User paths
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = "$machinePath;$userPath"
+    Write-Info "PATH refreshed in current session"
+}
+
+function Download-File($url, $output) {
+    Write-Info "Downloading from $url"
+    if ($PSVersionTable.PSVersion.Major -lt 6) {
+        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $output
+    } else {
+        Invoke-WebRequest -Uri $url -OutFile $output
+    }
+}
+
+# =============================
 # Check Admin and Get Real User
 # =============================
 $isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
@@ -57,46 +97,6 @@ $BinName = "nacos-cli.exe"
 $SetupInstallDir = Join-Path $realLocalAppData "Programs\nacos-setup"
 $SetupScriptName = "nacos-setup.ps1"
 $SetupCmdName = "nacos-setup.cmd"
-
-# =============================
-# Helpers
-# =============================
-function Write-Info($msg) { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
-function Write-Success($msg) { Write-Host "[SUCCESS] $msg" -ForegroundColor Green }
-function Write-Warn($msg) { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
-function Write-ErrorMsg($msg) { Write-Host "[ERROR] $msg" -ForegroundColor Red }
-
-function Ensure-Directory($path) {
-    if (-not (Test-Path $path)) { New-Item -ItemType Directory -Path $path | Out-Null }
-}
-
-function Add-ToUserPath($dir) {
-    $current = [Environment]::GetEnvironmentVariable("Path", "User")
-    if ($current -and $current.Split(';') -contains $dir) { 
-        Write-Info "PATH already contains: $dir"
-        return 
-    }
-    $newPath = if ($current) { "$current;$dir" } else { $dir }
-    [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
-    Write-Success "Added to PATH: $dir"
-}
-
-function Refresh-SessionPath() {
-    # Refresh PATH in current session by combining Machine and User paths
-    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
-    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
-    $env:Path = "$machinePath;$userPath"
-    Write-Info "PATH refreshed in current session"
-}
-
-function Download-File($url, $output) {
-    Write-Info "Downloading from $url"
-    if ($PSVersionTable.PSVersion.Major -lt 6) {
-        Invoke-WebRequest -UseBasicParsing -Uri $url -OutFile $output
-    } else {
-        Invoke-WebRequest -Uri $url -OutFile $output
-    }
-}
 
 # =============================
 # Main
