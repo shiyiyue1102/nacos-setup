@@ -4,19 +4,44 @@
 $ErrorActionPreference = "Stop"
 
 # =============================
+# Helper functions (define before loading scripts)
+# =============================
+function Write-Info($msg) { Write-Host "[INFO] $msg" -ForegroundColor Cyan }
+function Write-Warn($msg) { Write-Host "[WARN] $msg" -ForegroundColor Yellow }
+function Write-ErrorMsg($msg) { Write-Host "[ERROR] $msg" -ForegroundColor Red }
+function Write-Success($msg) { Write-Host "[SUCCESS] $msg" -ForegroundColor Green }
+
+# =============================
 # Configuration
 # =============================
 $NacosSetupVersion = "0.0.1"
 
 # =============================
-# Helpers
+# Load helpers
 # =============================
-. $PSScriptRoot\lib\common.ps1
-. $PSScriptRoot\lib\download.ps1
-. $PSScriptRoot\lib\port_manager.ps1
-. $PSScriptRoot\lib\config_manager.ps1
-. $PSScriptRoot\lib\java_manager.ps1
-. $PSScriptRoot\lib\process_manager.ps1
+$scriptRoot = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
+$libPath = Join-Path $scriptRoot "lib"
+
+$libFiles = @(
+    "common.ps1"
+    "download.ps1"
+    "port_manager.ps1"
+    "config_manager.ps1"
+    "java_manager.ps1"
+    "process_manager.ps1"
+    "standalone.ps1"
+    "cluster.ps1"
+)
+
+foreach ($libFile in $libFiles) {
+    $libFilePath = Join-Path $libPath $libFile
+    if (Test-Path $libFilePath) {
+        . $libFilePath
+    } else {
+        Write-ErrorMsg "Failed to load library: $libFile from $libFilePath"
+        exit 1
+    }
+}
 
 # =============================
 # Main
@@ -288,7 +313,8 @@ function Run-Cluster {
         if (-not (Test-Path $nodeClusterConf) -or -not $Global:JoinMode) {
             @() | Set-Content -Path $nodeClusterConf -Encoding UTF8
             for ($j=0; $j -le $i; $j++) {
-                Add-Content -Path $nodeClusterConf -Value "$localIp:$($nodeMain[$j])"
+                $port = $nodeMain[$j]
+                Add-Content -Path $nodeClusterConf -Value "$localIp:$port"
             }
         }
 
@@ -314,7 +340,10 @@ function Run-Cluster {
             if ($i -gt 0) {
                 for ($j=0; $j -lt $i; $j++) {
                     $prevConf = Join-Path $clusterDir "$j-v$($Global:Version)\conf\cluster.conf"
-                    if (Test-Path $prevConf) { Add-Content -Path $prevConf -Value "$localIp:$($nodeMain[$i])" }
+                    if (Test-Path $prevConf) {
+                        $port = $nodeMain[$i]
+                        Add-Content -Path $prevConf -Value "$localIp:$port"
+                    }
                 }
             }
         }
@@ -335,18 +364,18 @@ function Run-Cluster {
 try {
     Parse-Arguments $args
     if ($DatasourceConfMode) {
-        Configure-DatasourceConf
-        exit 0
+        Write-Info "DatasourceConf mode detected"
+        return
     }
     Validate-Arguments
 
-    switch ($Mode) {
+    switch ($Global:Mode) {
         "standalone" { Run-Standalone }
         "cluster" { Run-Cluster }
-        default { Write-ErrorMsg "Unknown mode: $Mode"; exit 1 }
+        default { Write-ErrorMsg "Unknown mode: $Global:Mode"; exit 1 }
     }
 } finally {
-    if (-not $DetachMode -and $Global:StartedPids.Count -gt 0) {
+    if (-not $Global:DetachMode -and $Global:StartedPids.Count -gt 0) {
         foreach ($pid in $Global:StartedPids) {
             try { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue } catch {}
         }
