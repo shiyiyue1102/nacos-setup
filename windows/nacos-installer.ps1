@@ -164,6 +164,12 @@ if ($InstallCli) {
     # =============================
     # Install nacos-cli only
     # =============================
+    # Remove existing installation directory if it exists (fresh install)
+    if (Test-Path $InstallDir) {
+        Write-Warn "Removing existing nacos-cli installation at $InstallDir"
+        Remove-Item -Recurse -Force $InstallDir
+    }
+    
     Ensure-Directory $InstallDir
     Write-Info "Preparing to install nacos-cli version $NacosCliVersion..."
     
@@ -213,6 +219,20 @@ if ($InstallCli) {
     # Install nacos-setup (default)
     # =============================
     Write-Info "Preparing to install nacos-setup version $NacosSetupVersion..."
+    
+    if (Test-Path $SetupInstallDir) {
+        Write-Warn "nacos-setup is already installed at: $SetupInstallDir"
+        Write-Info "Reinstalling will overwrite existing files..."
+    }
+    
+    Ensure-Directory $CacheDir
+    
+    # Remove existing installation directory if it exists (fresh install)
+    if (Test-Path $SetupInstallDir) {
+        Write-Warn "Removing existing nacos-setup installation at $SetupInstallDir"
+        Remove-Item -Recurse -Force $SetupInstallDir
+    }
+    
     Ensure-Directory $SetupInstallDir
     
     $setupZipName = "nacos-setup-windows-$NacosSetupVersion.zip"

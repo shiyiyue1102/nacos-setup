@@ -163,6 +163,18 @@ function Run-Standalone {
     Write-Info "Target Nacos version: $Global:Version"
     Write-Info "Installation directory: $Global:InstallDir"
 
+    # Check if target directory already exists
+    if (Test-Path $Global:InstallDir) {
+        if ($Global:CleanMode) {
+            Write-Warn "Cleaning existing installation..."
+            Remove-Item -Recurse -Force $Global:InstallDir
+        } else {
+            Write-ErrorMsg "Installation directory '$($Global:InstallDir)' already exists"
+            Write-Info "Use --clean flag to remove existing installation and reinstall"
+            exit 1
+        }
+    }
+
     if (-not (Check-JavaRequirements $Global:Version $Global:AdvancedMode)) { exit 1 }
 
     $zip = Download-Nacos $Global:Version
