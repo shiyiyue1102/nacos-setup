@@ -161,6 +161,9 @@ function Invoke-StandaloneMode {
         Write-Info "Starting Nacos in standalone mode..."
         Write-Host ""
         
+        # Record start time
+        $startTime = Get-Date
+        
         $pid = Start-NacosProcess $Global:InstallDir "standalone" $false
         if (-not $pid) {
             Write-Warn "Could not determine Nacos PID"
@@ -172,7 +175,9 @@ function Invoke-StandaloneMode {
         
         # Wait for readiness and initialize password
         if (Wait-NacosReady $Global:ServerPort $Global:ConsolePort $Global:Version) {
-            Write-Info "Nacos is ready!"
+            $endTime = Get-Date
+            $elapsed = [int]($endTime - $startTime).TotalSeconds
+            Write-Info "Nacos is ready in ${elapsed}s!"
             Write-Host ""
             
             if ($Global:NacosPassword -and $Global:NacosPassword -ne "nacos") {
