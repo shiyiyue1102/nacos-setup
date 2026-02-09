@@ -8,15 +8,18 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$SCRIPT_DIR"
 
+# ============================================================================
+# Version Configuration - MODIFY THIS TO CHANGE VERSION
+# ============================================================================
+DEFAULT_VERSION="0.0.1"
+
 print() { echo "[package] $*"; }
 
 usage() {
     cat <<EOF
 Usage: $0 [version]
 
-If version is not provided, the script will try to detect it from:
-  1) variable NACOS_SETUP_VERSION in ./nacos-setup.sh
-  2) git describe --tags --always
+If version is not provided, uses DEFAULT_VERSION defined in this script: $DEFAULT_VERSION
 
 Output: 
   ./dist/nacos-setup-VERSION.zip (Linux/macOS)
@@ -29,25 +32,13 @@ if [ "${1:-}" = "-h" ] || [ "${1:-}" = "--help" ]; then
     exit 0
 fi
 
-VERSION="${1:-}"
+# Use command line argument if provided, otherwise use default version
+VERSION="${1:-$DEFAULT_VERSION}"
 
-# Prefer version declared in nacos-setup.sh
-file_version=""
-if [ -f "$PROJECT_ROOT/nacos-setup.sh" ]; then
-    file_version=$(sed -n 's/^NACOS_SETUP_VERSION="\(.*\)"/\1/p' "$PROJECT_ROOT/nacos-setup.sh" || true)
-fi
-
-if [ -n "$file_version" ]; then
-    if [ -n "$VERSION" ] && [ "$VERSION" != "$file_version" ]; then
-        echo "[package] Warning: provided version '$VERSION' differs from NACOS_SETUP_VERSION='$file_version' in nacos-setup.sh; using file version."
-    fi
-    VERSION="$file_version"
-else
-    if [ -z "$VERSION" ]; then
-        echo "[package] Error: NACOS_SETUP_VERSION not found in nacos-setup.sh and no version argument provided."
-        echo "Provide a version: ./package.sh 1.2.3  or define NACOS_SETUP_VERSION in nacos-setup.sh"
-        exit 1
-    fi
+if [ -z "$VERSION" ]; then
+    echo "[package] Error: No version specified"
+    echo "Either modify DEFAULT_VERSION in this script or provide version as argument: ./package.sh 1.2.3"
+    exit 1
 fi
 
 DIST_DIR="$PROJECT_ROOT/dist"
@@ -66,8 +57,8 @@ package_linux() {
     rm -rf "$tmp_dir"
     mkdir -p "$tmp_dir/$name"
     
-    # Linux files only
-    local include=("nacos-setup.sh" "nacos-installer.sh" "lib" "README.md" "LICENSE")
+    # Linux files only (exclude installer)
+    local include=("nacos-setup.sh" "lib" "README.md" "LICENSE")
     
     for f in "${include[@]}"; do
         if [ -e "$PROJECT_ROOT/$f" ]; then
@@ -83,9 +74,6 @@ package_linux() {
     fi
     if [ -f "$tmp_dir/$name/nacos-setup.sh" ]; then
         chmod +x "$tmp_dir/$name/nacos-setup.sh" 2>/dev/null || true
-    fi
-    if [ -f "$tmp_dir/$name/nacos-installer.sh" ]; then
-        chmod +x "$tmp_dir/$name/nacos-installer.sh" 2>/dev/null || true
     fi
     
     pushd "$tmp_dir" >/dev/null
@@ -119,9 +107,15 @@ package_windows() {
     rm -rf "$tmp_dir"
     mkdir -p "$tmp_dir/$name"
     
-    # Windows files only
+    # Windows files only (exclude installer)
     if [ -d "$PROJECT_ROOT/windows" ]; then
-        cp -a "$PROJECT_ROOT/windows"/* "$tmp_dir/$name/"
+        # Copy all files from windows directory except nacos-installer.ps1
+        for item in "$PROJECT_ROOT/windows"/*; do
+            local basename=$(basename "$item")
+            if [ "$basename" != "nacos-installer.ps1" ]; then
+                cp -a "$item" "$tmp_dir/$name/"
+            fi
+        done
     else
         print "Error: windows directory not found"
         exit 1

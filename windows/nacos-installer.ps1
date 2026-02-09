@@ -4,16 +4,57 @@
 $ErrorActionPreference = "Stop"
 
 # =============================
+# Check Admin and Get Real User
+# =============================
+$isAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+
+# Get the actual user directory even when running as admin
+if ($isAdmin) {
+    # When running as admin, find the real user who invoked the script
+    $currentUserName = [System.Environment]::UserName
+    
+    # If we're running as SYSTEM, try to find the actual logged-in user
+    if ($currentUserName -eq 'SYSTEM' -or $env:USERPROFILE -match 'systemprofile') {
+        # Get the console user (who is actually logged in)
+        $loggedInUser = (Get-WmiObject -Class Win32_ComputerSystem).UserName
+        if ($loggedInUser -and $loggedInUser -match '\\(.+)$') {
+            $realUserProfile = "C:\Users\$($matches[1])"
+        } else {
+            # Fallback: get the most recently modified user profile
+            $profiles = Get-ChildItem "C:\Users" -Directory | Where-Object { 
+                $_.Name -notin @('Public', 'Default', 'Default User', 'All Users') -and
+                (Test-Path (Join-Path $_.FullName 'AppData'))
+            } | Sort-Object LastWriteTime -Descending
+            
+            if ($profiles) {
+                $realUserProfile = $profiles[0].FullName
+            } else {
+                Write-ErrorMsg "Cannot determine real user profile"
+                exit 1
+            }
+        }
+    } else {
+        # Running as admin but not as SYSTEM
+        $realUserProfile = $env:USERPROFILE
+    }
+} else {
+    $realUserProfile = $env:USERPROFILE
+}
+
+# Get real LocalAppData
+$realLocalAppData = Join-Path $realUserProfile "AppData\Local"
+
+# =============================
 # Configuration
 # =============================
 $DownloadBaseUrl = "https://download.nacos.io"
 $WindowsSetupZipBase = "https://download.nacos.io"
 $NacosCliVersion = if ($env:NACOS_CLI_VERSION) { $env:NACOS_CLI_VERSION } else { "0.0.1" }
-$NacosSetupVersion = if ($env:NACOS_SETUP_VERSION) { $env:NACOS_SETUP_VERSION } else { "0.0.2" }
-$CacheDir = Join-Path $env:USERPROFILE ".nacos\cache"
-$InstallDir = Join-Path $env:LOCALAPPDATA "Programs\nacos-cli"
+$NacosSetupVersion = if ($env:NACOS_SETUP_VERSION) { $env:NACOS_SETUP_VERSION } else { "0.0.1" }
+$CacheDir = Join-Path $realUserProfile ".nacos\cache"
+$InstallDir = Join-Path $realLocalAppData "Programs\nacos-cli"
 $BinName = "nacos-cli.exe"
-$SetupInstallDir = Join-Path $env:LOCALAPPDATA "Programs\nacos-setup"
+$SetupInstallDir = Join-Path $realLocalAppData "Programs\nacos-setup"
 $SetupScriptName = "nacos-setup.ps1"
 $SetupCmdName = "nacos-setup.cmd"
 
@@ -31,9 +72,21 @@ function Ensure-Directory($path) {
 
 function Add-ToUserPath($dir) {
     $current = [Environment]::GetEnvironmentVariable("Path", "User")
-    if ($current -and $current.Split(';') -contains $dir) { return }
+    if ($current -and $current.Split(';') -contains $dir) { 
+        Write-Info "PATH already contains: $dir"
+        return 
+    }
     $newPath = if ($current) { "$current;$dir" } else { $dir }
     [Environment]::SetEnvironmentVariable("Path", $newPath, "User")
+    Write-Success "Added to PATH: $dir"
+}
+
+function Refresh-SessionPath() {
+    # Refresh PATH in current session by combining Machine and User paths
+    $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    $env:Path = "$machinePath;$userPath"
+    Write-Info "PATH refreshed in current session"
 }
 
 function Download-File($url, $output) {
@@ -53,6 +106,11 @@ Write-Host "========================================"
 Write-Host "  Nacos Installer (Windows)"
 Write-Host "========================================"
 Write-Host ""
+
+if ($isAdmin) {
+    Write-Warn "Running as Administrator detected"
+    Write-Info "Installing to user directory: $realUserProfile"
+}
 
 Write-Info "Preparing to install nacos-cli version $NacosCliVersion..."
 
@@ -93,10 +151,11 @@ Add-ToUserPath $InstallDir
 Remove-Item -Recurse -Force $extractDir
 
 Write-Success "nacos-cli $NacosCliVersion installed to $InstallDir\\$BinName"
+Write-Host ""
 
 Write-Info "Preparing nacos-setup (WSL2 required)..."
 
-$setupZipName = "nacos-setup-$NacosSetupVersion.zip"
+$setupZipName = "nacos-setup-windows-$NacosSetupVersion.zip"
 $setupZipPath = Join-Path $CacheDir $setupZipName
 $setupZipUrl = "$WindowsSetupZipBase/$setupZipName"
 
@@ -111,13 +170,21 @@ $extractDir = Join-Path $env:TEMP ("nacos-setup-windows-extract-" + [Guid]::NewG
 Ensure-Directory $extractDir
 Expand-Archive -Path $setupZipPath -DestinationPath $extractDir -Force
 
-$windowsDir = Get-ChildItem -Path $extractDir -Directory -Recurse | Where-Object { $_.Name -eq "windows" } | Select-Object -First 1
-if (-not $windowsDir) {
-    Write-ErrorMsg "windows directory not found in $setupZipName"
+# The zip contains nacos-setup-windows-VERSION directory with all files directly inside
+$setupDir = Get-ChildItem -Path $extractDir -Directory | Select-Object -First 1
+if (-not $setupDir) {
+    Write-ErrorMsg "Failed to find extracted directory in $setupZipName"
     exit 1
 }
 
-Copy-Item -Path (Join-Path $windowsDir.FullName "*") -Destination $SetupInstallDir -Recurse -Force
+# Verify required files exist
+$setupScriptInZip = Join-Path $setupDir.FullName $SetupScriptName
+if (-not (Test-Path $setupScriptInZip)) {
+    Write-ErrorMsg "$SetupScriptName not found in package"
+    exit 1
+}
+
+Copy-Item -Path (Join-Path $setupDir.FullName "*") -Destination $SetupInstallDir -Recurse -Force
 
 $setupScriptPath = Join-Path $SetupInstallDir $SetupScriptName
 if (-not (Test-Path $setupScriptPath)) {
@@ -139,7 +206,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0$SetupScriptName" %*
 "@ | Set-Content -Path $setupCmdPath -Encoding ASCII
 
 Add-ToUserPath $SetupInstallDir
+# Refresh PATH in current session to make commands available immediately
+Refresh-SessionPath
 
+Write-Host ""
 Write-Success "nacos-setup installed to $SetupInstallDir\\$SetupScriptName"
-Write-Info "You can now run: nacos-setup --help"
-Write-Info "Please reopen your terminal to load updated PATH."
+Write-Host ""
+Write-Info "Installation Summary:"
+Write-Info "  nacos-cli: $InstallDir\\$BinName"
+Write-Info "  nacos-setup: $SetupInstallDir\\$SetupCmdName"
+Write-Host ""
+Write-Success "Installation complete! You can now use the commands:"
+Write-Info "  nacos-cli --help"
+Write-Info "  nacos-setup --help"
+Write-Host ""

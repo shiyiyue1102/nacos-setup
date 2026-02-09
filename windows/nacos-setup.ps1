@@ -252,7 +252,7 @@ function Run-Cluster {
     if ($existingMainPorts.Count -gt 0 -and $Global:JoinMode) {
         $nodeMain = $existingMainPorts
         $nodeConsole = $existingConsolePorts
-        $newIndex = ($existingNodes | ForEach-Object { ($_ .Name -split '-v')[0] } | ForEach-Object { [int]$_ } | Measure-Object -Maximum).Maximum + 1
+        $newIndex = ($existingNodes | ForEach-Object { ($_.Name -split '-v')[0] } | ForEach-Object { [int]$_ } | Measure-Object -Maximum).Maximum + 1
         $candidatePort = $Global:BasePort + ($newIndex * 10)
         $newMain = Find-AvailableNacosPort $candidatePort
         if (-not $newMain) { throw "No available port for new node" }

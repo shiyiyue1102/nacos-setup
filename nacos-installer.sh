@@ -550,29 +550,61 @@ verify_installation() {
         return 1
     fi
     
-    # Check if the symlink target exists
+    # Check if the symlink target exists (resolve and check the actual target)
     if [ -L "$BIN_DIR/$SCRIPT_NAME" ]; then
-        local target=$(readlink "$BIN_DIR/$SCRIPT_NAME")
-        if [ ! -e "$BIN_DIR/$SCRIPT_NAME" ]; then
-            print_error "Installation failed: Broken symlink at $BIN_DIR/$SCRIPT_NAME"
+        local link_path="$BIN_DIR/$SCRIPT_NAME"
+        # Follow the symlink to check if target is accessible
+        if [ ! -e "$link_path" ]; then
+            local target=$(readlink "$link_path")
+            print_error "Installation failed: Broken symlink at $link_path"
             print_error "Target does not exist: $target"
             return 1
         fi
     fi
     
     if ! command -v $SCRIPT_NAME >/dev/null 2>&1; then
-        print_warn "Command not found in PATH"
-        print_warn "Please add $BIN_DIR to your PATH"
-        print_warn "Add this to your ~/.bashrc or ~/.zshrc:"
-        echo ""
-        echo "    export PATH=\"$BIN_DIR:\$PATH\""
-        echo ""
-        print_warn "Alternatively, reload your shell configuration:"
-        echo ""
-        echo "    source ~/.bashrc   # or source ~/.zshrc"
-        echo ""
-        # Do not fail verification if only PATH is missing - it's a common case
-        print_success "Installation completed (PATH configuration needed)"
+        print_info "Configuring PATH automatically..."
+        
+        # Detect shell configuration file
+        local shell_config=""
+        if [ -n "$SHELL" ]; then
+            case "$SHELL" in
+                */zsh)
+                    shell_config="$HOME/.zshrc"
+                    ;;
+                */bash)
+                    shell_config="$HOME/.bashrc"
+                    ;;
+            esac
+        fi
+        
+        # Fallback: detect by checking which file exists
+        if [ -z "$shell_config" ]; then
+            if [ -f "$HOME/.zshrc" ]; then
+                shell_config="$HOME/.zshrc"
+            elif [ -f "$HOME/.bashrc" ]; then
+                shell_config="$HOME/.bashrc"
+            else
+                # Create .bashrc if nothing exists
+                shell_config="$HOME/.bashrc"
+            fi
+        fi
+        
+        # Check if PATH is already configured
+        local path_export="export PATH=\"$BIN_DIR:\$PATH\""
+        if ! grep -qF "$BIN_DIR" "$shell_config" 2>/dev/null; then
+            echo "" >> "$shell_config"
+            echo "# Added by nacos-setup installer" >> "$shell_config"
+            echo "$path_export" >> "$shell_config"
+            print_success "PATH configured in $shell_config"
+        else
+            print_info "PATH already configured in $shell_config"
+        fi
+        
+        # Note: We cannot automatically source in the current shell due to shell limitations
+        # The script runs in a subshell, sourcing only affects the subshell, not the parent shell
+        # But we can use the command directly via absolute path
+        print_info "PATH will be available in new terminal sessions"
         echo ""
         return 0
     fi
@@ -704,14 +736,21 @@ main() {
             only_cli=true
             ;;
         --help|-h)
-            echo "Usage: bash nacos-installer.sh [OPTION]"
+            echo "Usage: curl -fsSL https://nacos.io/installer.sh | sudo bash"
+            echo ""
+            echo "Install nacos-setup and nacos-cli tools for managing Nacos instances."
             echo ""
             echo "Options:"
-            echo "  (none)              Install nacos-setup only"
+            echo "  (none)              Install nacos-setup"
             echo "  --cli               Install nacos-cli only"
             echo "  version, -v         Show installed version"
             echo "  uninstall, -u       Uninstall nacos-setup"
             echo "  --help, -h          Show this help message"
+            echo ""
+            echo "After installation, use 'nacos-setup' command to manage Nacos:"
+            echo "  nacos-setup --help              Show nacos-setup help"
+            echo "  nacos-setup -v 3.1.1            Install Nacos standalone"
+            echo "  nacos-setup -c prod -n 3        Install Nacos cluster"
             echo ""
             exit 0
             ;;
@@ -720,7 +759,7 @@ main() {
     # Check requirements
     if ! check_requirements "${only_cli:+onlycli}"; then
         print_error "Requirements check failed"
-        print_info "Try running with sudo: sudo bash nacos-installer.sh"
+        print_info "Try running with sudo: curl -fsSL https://nacos.io/installer.sh | sudo bash"
         exit 1
     fi
 
@@ -759,15 +798,12 @@ main() {
         echo ""
         if [[ "$REPLY" =~ ^[Yy]?$ ]] || [[ -z "$REPLY" ]]; then
             print_info "Installing Nacos $detected_default_version..."
-            # Use the installed global command to perform the Nacos installation
-            if command -v "$SCRIPT_NAME" >/dev/null 2>&1; then
-                "$SCRIPT_NAME" -v "$detected_default_version"
-            else
-                # fallback to calling script via BIN_DIR
-                "$BIN_DIR/$SCRIPT_NAME" -v "$detected_default_version"
-            fi
+            # Always use absolute path to ensure it works even if PATH is not yet loaded
+            "$BIN_DIR/$SCRIPT_NAME" -v "$detected_default_version"
         else
-            print_info "Skipping Nacos installation. You can run: $SCRIPT_NAME -v $detected_default_version"
+            print_info "Skipping Nacos installation."
+            print_info "To install later, run: $SCRIPT_NAME -v $detected_default_version"
+            print_info "Or use absolute path: $BIN_DIR/$SCRIPT_NAME -v $detected_default_version"
         fi
 
         exit 0

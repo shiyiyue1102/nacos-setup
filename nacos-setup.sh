@@ -21,7 +21,7 @@
 # Script Initialization
 # ============================================================================
 
-NACOS_SETUP_VERSION="0.0.2"
+NACOS_SETUP_VERSION="0.0.1"
 
 set -e  # Exit on error (will be disabled after initial checks)
 
