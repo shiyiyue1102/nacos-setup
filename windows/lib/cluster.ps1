@@ -536,7 +536,14 @@ function Join-ClusterMode {
     }
     
     # Allocate ports
-    $clusterConf = Get-Content (Join-Path $clusterDir "cluster.conf")
+    $clusterConfPath = Join-Path $clusterDir "cluster.conf"
+    if (-not (Test-Path $clusterConfPath)) {
+        Write-ErrorMsg "Cluster configuration not found: $clusterConfPath"
+        Write-ErrorMsg "Please create the cluster first before joining new nodes"
+        Invoke-ClusterCleanup 1
+    }
+    
+    $clusterConf = Get-Content $clusterConfPath
     $maxPort = 0
     $clusterConf | ForEach-Object {
         if ($_ -match ":(\d+)$") {

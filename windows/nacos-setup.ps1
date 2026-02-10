@@ -481,6 +481,17 @@ function Run-Cluster {
         Apply-SecurityConfig $configFile $Global:TOKEN_SECRET $Global:IDENTITY_KEY $Global:IDENTITY_VALUE
         if ($ds) { Apply-DatasourceConfig $configFile $ds | Out-Null } elseif ($useDerby) { Configure-Derby-For-Cluster $configFile }
     }
+    
+    # Create master cluster.conf in cluster directory
+    $masterClusterConf = Join-Path $clusterDir "cluster.conf"
+    "" | Out-File -FilePath $masterClusterConf -Encoding ASCII
+    for ($i = 0; $i -lt $nodeMain.Count; $i++) {
+        Add-Content -Path $masterClusterConf -Value "${localIp}:$($nodeMain[$i])" -Encoding ASCII
+    }
+    
+    Write-Info "Final cluster configuration:"
+    Get-Content $masterClusterConf | ForEach-Object { Write-Host "  $_" }
+    Write-Host ""
 
     if ($Global:AutoStart) {
         Write-Info "Starting cluster nodes (sequential start)..."
