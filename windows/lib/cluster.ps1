@@ -679,13 +679,27 @@ function Leave-ClusterMode {
     # Update cluster.conf (remove this node)
     if ($nodePort) {
         $clusterConfPath = Join-Path $clusterDir "cluster.conf"
-        $content = Get-Content $clusterConfPath | Where-Object { $_ -notmatch ":${nodePort}$" }
-        $content | Out-File -FilePath $clusterConfPath -Encoding ASCII
-        
-        # Update all remaining nodes
-        foreach ($existingNode in $existingNodes) {
-            if ($existingNode.Name -ne $targetNode.Name) {
-                Copy-Item $clusterConfPath (Join-Path $clusterDir $existingNode.Name "conf\cluster.conf")
+        if (Test-Path $clusterConfPath) {
+            $content = Get-Content $clusterConfPath | Where-Object { $_ -notmatch ":${nodePort}$" }
+            $content | Out-File -FilePath $clusterConfPath -Encoding ASCII
+            
+            # Update all remaining nodes
+            foreach ($existingNode in $existingNodes) {
+                if ($existingNode.Name -ne $targetNode.Name) {
+                    Copy-Item $clusterConfPath (Join-Path $clusterDir $existingNode.Name "conf\cluster.conf")
+                }
+            }
+        } else {
+            Write-Warn "Master cluster.conf not found, updating individual node configs"
+            # Manually update each remaining node's cluster.conf
+            foreach ($existingNode in $existingNodes) {
+                if ($existingNode.Name -ne $targetNode.Name) {
+                    $nodeClusterConf = Join-Path $clusterDir $existingNode.Name "conf\cluster.conf"
+                    if (Test-Path $nodeClusterConf) {
+                        $content = Get-Content $nodeClusterConf | Where-Object { $_ -notmatch ":${nodePort}$" }
+                        $content | Out-File -FilePath $nodeClusterConf -Encoding ASCII
+                    }
+                }
             }
         }
     }
