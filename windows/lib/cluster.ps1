@@ -56,17 +56,13 @@ function Invoke-ClusterCleanup {
         Write-Info "Stopping cluster nodes..."
         
         $stoppedPids = @()
-        foreach ($pid in $Global:StartedPids) {
-            if (Get-Process -Id $pid -ErrorAction SilentlyContinue) {
-                Stop-NacosGracefully $pid
-                $stoppedPids += $pid
-            }
-        }
-        
-        if ($stoppedPids.Count -gt 0) {
-            Write-Info "Stopped $($stoppedPids.Count) node(s): $($stoppedPids -join ', ')"
-        } else {
-            Write-Info "No running nodes to stop"
+        foreach ($p in $Global:StartedPids) {
+            Write-Info "Terminating node PID: $p"
+            try { 
+                Stop-Process -Id $p -Force -ErrorAction SilentlyContinue 
+                $stoppedPids += $p
+            } catch {}
+            try { cmd /c "taskkill /F /PID $p /T >NUL 2>&1" } catch {}
         }
     }
     
@@ -107,9 +103,9 @@ function Start-ClusterNode {
     }
     
     # Start the node
-    $pid = Start-NacosProcess $NodeDir "cluster" $UseDerby
+    $nacosPid = Start-NacosProcess $NodeDir "cluster" $UseDerby
     
-    if (-not $pid) {
+    if (-not $nacosPid) {
         Write-ErrorMsg "Failed to start node $NodeName"
         return $null
     }
@@ -118,12 +114,12 @@ function Start-ClusterNode {
     if (Wait-NacosReady $MainPort $ConsolePort $NacosVersion 60) {
         $endTime = Get-Date
         $elapsed = ($endTime - $startTime).TotalSeconds
-        Write-Info "Node $NodeName ready (PID: $pid, $([int]$elapsed)s)"
-        return $pid
+        Write-Info "Node $NodeName ready (PID: $nacosPid, $([int]$elapsed)s)"
+        return $nacosPid
     } else {
         Write-ErrorMsg "Node $NodeName startup timeout"
-        if (Get-Process -Id $pid -ErrorAction SilentlyContinue) {
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+        if (Get-Process -Id $nacosPid -ErrorAction SilentlyContinue) {
+            Stop-Process -Id $nacosPid -Force -ErrorAction SilentlyContinue
         }
         return $null
     }
@@ -289,10 +285,10 @@ function New-Cluster {
             $nodeName = "$i-v$($Global:Version)"
             $nodeDir = Join-Path $clusterDir $nodeName
             
-            $pid = Start-ClusterNode $nodeDir $nodeName $nodeMainPorts[$i] $nodeConsolePorts[$i] $Global:Version $useDerby
+            $nacosPid = Start-ClusterNode $nodeDir $nodeName $nodeMainPorts[$i] $nodeConsolePorts[$i] $Global:Version $useDerby
             
-            if ($pid) {
-                $Global:StartedPids += $pid
+            if ($nacosPid) {
+                $Global:StartedPids += $nacosPid
                 
                 # Update previous nodes' cluster.conf to include new node
                 if ($i -gt 0) {
@@ -583,9 +579,9 @@ function Join-ClusterMode {
     
     # Start new node
     if ($Global:AutoStart) {
-        $pid = Start-ClusterNode $newNodeDir $newNodeName $newMainPort $newConsolePort $Global:Version $useDerby
+        $nacosPid = Start-ClusterNode $newNodeDir $newNodeName $newMainPort $newConsolePort $Global:Version $useDerby
         
-        if ($pid) {
+        if ($nacosPid) {
             Write-Info "Node joined successfully!"
             
             if ($Global:DetachMode) {
@@ -594,7 +590,7 @@ function Join-ClusterMode {
                 exit 0
             } else {
                 Write-Info "Press Ctrl+C to stop node"
-                while (Get-Process -Id $pid -ErrorAction SilentlyContinue) {
+                while (Get-Process -Id $nacosPid -ErrorAction SilentlyContinue) {
                     Start-Sleep -Seconds 5
                 }
             }
@@ -693,14 +689,3 @@ function Invoke-ClusterMode {
         New-Cluster
     }
 }
-
-# Export functions
-Export-ModuleMember -Function @(
-    'Invoke-ClusterMode',
-    'Start-ClusterNode',
-    'New-Cluster',
-    'Join-ClusterMode',
-    'Leave-ClusterMode',
-    'Show-ClusterInfo',
-    'Remove-ExistingCluster'
-)

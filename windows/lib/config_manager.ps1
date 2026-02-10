@@ -49,6 +49,25 @@ function Configure-Standalone-Security($configFile, $advancedMode) {
         $Global:IDENTITY_KEY = "nacos_identity_" + [int][double]::Parse((Get-Date -UFormat %s))
         $Global:IDENTITY_VALUE = (Generate-SecretKey).Substring(0,16)
         $Global:NACOS_PASSWORD = Generate-Password
+        
+        Write-Host ""
+        Write-Info "===================================="
+        Write-Info "Auto-Generated Security Configuration"
+        Write-Info "===================================="
+        Write-Host ""
+        Write-Host "JWT Token Secret Key:"
+        Write-Host "  $($Global:TOKEN_SECRET)"
+        Write-Host ""
+        Write-Host "Server Identity Key:"
+        Write-Host "  $($Global:IDENTITY_KEY)"
+        Write-Host ""
+        Write-Host "Server Identity Value:"
+        Write-Host "  $($Global:IDENTITY_VALUE)"
+        Write-Host ""
+        Write-Host "Admin Password:"
+        Write-Host "  $($Global:NACOS_PASSWORD)"
+        Write-Host ""
+        Write-Info "These credentials will be automatically configured"
     } else {
         $Global:TOKEN_SECRET = Read-Host "Enter JWT token secret key (empty for auto)"
         if (-not $Global:TOKEN_SECRET) { $Global:TOKEN_SECRET = Generate-SecretKey }
@@ -64,11 +83,33 @@ function Configure-Standalone-Security($configFile, $advancedMode) {
 }
 
 function Configure-Cluster-Security($clusterDir, $advancedMode) {
+    Write-Host ""
+    
     if (-not $advancedMode) {
+        Write-Info "Simplified mode: Auto-generating shared security keys for cluster..."
+        
         $Global:TOKEN_SECRET = Generate-SecretKey
         $Global:IDENTITY_KEY = "nacos_cluster_" + [int][double]::Parse((Get-Date -UFormat %s))
         $Global:IDENTITY_VALUE = (Generate-SecretKey).Substring(0,16)
         $Global:NACOS_PASSWORD = Generate-Password
+        
+        Write-Host ""
+        Write-Info "==========================================="
+        Write-Info "Auto-Generated Cluster Security Configuration"
+        Write-Info "==========================================="
+        Write-Host ""
+        Write-Host "JWT Token Secret Key:"
+        Write-Host "  $($Global:TOKEN_SECRET)"
+        Write-Host ""
+        Write-Host "Server Identity Key:"
+        Write-Host "  $($Global:IDENTITY_KEY)"
+        Write-Host ""
+        Write-Host "Server Identity Value:"
+        Write-Host "  $($Global:IDENTITY_VALUE)"
+        Write-Host ""
+        Write-Info "These credentials will be shared across all cluster nodes"
+        Write-Info "Admin password will be set after cluster startup"
+        Write-Host ""
     } else {
         $Global:TOKEN_SECRET = Read-Host "Enter JWT token secret key (empty for auto)"
         if (-not $Global:TOKEN_SECRET) { $Global:TOKEN_SECRET = Generate-SecretKey }
@@ -88,9 +129,12 @@ nacos.core.auth.server.identity.key=$($Global:IDENTITY_KEY)
 nacos.core.auth.server.identity.value=$($Global:IDENTITY_VALUE)
 admin.password=$($Global:NACOS_PASSWORD)
 "@ | Set-Content -Path $shareFile -Encoding UTF8
+    
+    Write-Info "Security configuration saved to: $shareFile"
 }
 
 function Update-PortConfig($configFile, $serverPort, $consolePort, $nacosVersion) {
+    if ([string]::IsNullOrWhiteSpace($configFile)) { throw "Update-PortConfig: Config file path is missing" }
     $major = [int]($nacosVersion.Split('.')[0])
     if ($major -ge 3) {
         Update-ConfigProperty $configFile "nacos.server.main.port" $serverPort

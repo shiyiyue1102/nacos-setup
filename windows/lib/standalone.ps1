@@ -164,11 +164,11 @@ function Invoke-StandaloneMode {
         # Record start time
         $startTime = Get-Date
         
-        $pid = Start-NacosProcess $Global:InstallDir "standalone" $false
-        if (-not $pid) {
+        $nacosPid = Start-NacosProcess $Global:InstallDir "standalone" $false
+        if (-not $nacosPid) {
             Write-Warn "Could not determine Nacos PID"
         } else {
-            $Global:StartedNacosPid = $pid
+            $Global:StartedNacosPid = $nacosPid
             Write-Info "Nacos started with PID: $($Global:StartedNacosPid)"
         }
         Write-Host ""
@@ -271,12 +271,6 @@ function Show-CompletionInfo {
     Write-Host "========================================"
 }
 
-# ============================================================================
-# Main Entry Point
-# ============================================================================
-
-# Export functions
-Export-ModuleMember -Function @(
-    'Invoke-StandaloneMode',
-    'Show-CompletionInfo'
-)
+## ============================================================================
+## Main Entry Point
+## ============================================================================

@@ -43,6 +43,33 @@ function Download-File($url, $output) {
     }
 }
 
+function Remove-DirectorySafe($path) {
+    if (-not (Test-Path $path)) { return }
+
+    Write-Warn "Attempting to stop processes using: $path"
+    try {
+        $procs = Get-CimInstance Win32_Process -ErrorAction SilentlyContinue |
+            Where-Object { $_.CommandLine -and $_.CommandLine -match [Regex]::Escape($path) }
+        foreach ($p in $procs) {
+            try { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue } catch {}
+        }
+    } catch {}
+
+    $tries = 0
+    while ($tries -lt 5) {
+        try {
+            Remove-Item -Recurse -Force $path -ErrorAction Stop
+            return
+        } catch {
+            Start-Sleep -Seconds 1
+        }
+        $tries++
+    }
+
+    Write-ErrorMsg "Failed to remove $path. Please close any running nacos-setup processes and try again."
+    exit 1
+}
+
 # =============================
 # Check Admin and Get Real User
 # =============================
@@ -134,7 +161,8 @@ $NacosSetupVersion = if ($env:NACOS_SETUP_VERSION) { $env:NACOS_SETUP_VERSION } 
 $CacheDir = Join-Path $realUserProfile ".nacos\cache"
 $InstallDir = Join-Path $realLocalAppData "Programs\nacos-cli"
 $BinName = "nacos-cli.exe"
-$SetupInstallDir = Join-Path $realLocalAppData "Programs\nacos-setup"
+$SetupRootDir = Join-Path $realLocalAppData "Programs\nacos-setup"
+$SetupInstallDir = Join-Path $SetupRootDir $NacosSetupVersion
 $SetupScriptName = "nacos-setup.ps1"
 $SetupCmdName = "nacos-setup.cmd"
 
@@ -221,16 +249,37 @@ if ($InstallCli) {
     Write-Info "Preparing to install nacos-setup version $NacosSetupVersion..."
     
     if (Test-Path $SetupInstallDir) {
-        Write-Warn "nacos-setup is already installed at: $SetupInstallDir"
-        Write-Info "Reinstalling will overwrite existing files..."
+        $existingScript = Join-Path $SetupInstallDir $SetupScriptName
+        if (Test-Path $existingScript) {
+            Write-Info "nacos-setup $NacosSetupVersion is already installed at: $SetupInstallDir"
+            Ensure-Directory $SetupRootDir
+            $rootCmdPath = Join-Path $SetupRootDir $SetupCmdName
+            @"
+@echo off
+powershell -NoProfile -ExecutionPolicy Bypass -File "${SetupInstallDir}\$SetupScriptName" %*
+"@ | Set-Content -Path $rootCmdPath -Encoding ASCII
+            Add-ToUserPath $SetupRootDir
+            Refresh-SessionPath
+            Write-Host ""
+            Write-Success "nacos-setup already installed."
+            Write-Host ""
+            Write-Info "Installation Summary:"
+            Write-Info "  Location: $SetupRootDir\\$SetupCmdName"
+            Write-Host ""
+            Write-Success "You can now use the command:"
+            Write-Info "  nacos-setup --help"
+            Write-Host ""
+            exit 0
+        }
+        Write-Warn "nacos-setup directory exists but script is missing. Reinstalling..."
     }
     
     Ensure-Directory $CacheDir
     
-    # Remove existing installation directory if it exists (fresh install)
+    # Remove existing installation directory only if reinstalling this version
     if (Test-Path $SetupInstallDir) {
         Write-Warn "Removing existing nacos-setup installation at $SetupInstallDir"
-        Remove-Item -Recurse -Force $SetupInstallDir
+        Remove-DirectorySafe $SetupInstallDir
     }
     
     Ensure-Directory $SetupInstallDir
@@ -276,20 +325,21 @@ if ($InstallCli) {
     Set-Content -Path $setupScriptPath -Value $content -Encoding UTF8
     Remove-Item -Recurse -Force $extractDir -ErrorAction SilentlyContinue
     
-    $setupCmdPath = Join-Path $SetupInstallDir $SetupCmdName
+    Ensure-Directory $SetupRootDir
+    $setupCmdPath = Join-Path $SetupRootDir $SetupCmdName
     @"
 @echo off
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0$SetupScriptName" %*
+powershell -NoProfile -ExecutionPolicy Bypass -File "${SetupInstallDir}\$SetupScriptName" %*
 "@ | Set-Content -Path $setupCmdPath -Encoding ASCII
     
-    Add-ToUserPath $SetupInstallDir
+    Add-ToUserPath $SetupRootDir
     Refresh-SessionPath
     
     Write-Host ""
     Write-Success "nacos-setup installed successfully!"
     Write-Host ""
     Write-Info "Installation Summary:"
-    Write-Info "  Location: $SetupInstallDir\\$SetupCmdName"
+    Write-Info "  Location: $SetupRootDir\\$SetupCmdName"
     Write-Host ""
     Write-Success "You can now use the command:"
     Write-Info "  nacos-setup --help"

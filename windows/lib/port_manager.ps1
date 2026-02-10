@@ -17,28 +17,28 @@ function Get-PortPid($port) {
     return $null
 }
 
-function Is-NacosProcess($pid) {
+function Is-NacosProcess($processId) {
     try {
-        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$pid" -ErrorAction Stop
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$processId" -ErrorAction Stop
         if ($proc -and $proc.CommandLine -match "nacos") { return $true }
     } catch {}
     return $false
 }
 
-function Stop-NacosProcess($pid) {
+function Stop-NacosProcess($processId) {
     try {
-        Stop-Process -Id $pid -Force -ErrorAction Stop
+        Stop-Process -Id $processId -Force -ErrorAction Stop
         return $true
     } catch { return $false }
 }
 
 function Handle-PortConflict($port, $portName, $allowKill) {
     Write-Warn "Port $port ($portName) is already in use"
-    $pid = Get-PortPid $port
-    if ($pid -and (Is-NacosProcess $pid)) {
+    $processId = Get-PortPid $port
+    if ($processId -and (Is-NacosProcess $processId)) {
         if ($allowKill) {
-            Write-Warn "Stopping existing Nacos process (PID: $pid)..."
-            if (Stop-NacosProcess $pid) { Start-Sleep -Seconds 2; return $true }
+            Write-Warn "Stopping existing Nacos process (PID: $processId)..."
+            if (Stop-NacosProcess $processId) { Start-Sleep -Seconds 2; return $true }
             return $false
         }
         return $false
@@ -138,7 +138,7 @@ function Allocate-ClusterPorts($basePort, $nodeCount, $nacosVersion) {
             if (-not $console) { throw "No available console port for node $i" }
         }
 
-        $result += "$main:$console"
+        $result += "${main}:$console"
     }
     return ,$result
 }

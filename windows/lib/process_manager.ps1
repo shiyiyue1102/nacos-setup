@@ -11,6 +11,17 @@ function Find-NacosProcessPid($installDir) {
     return $null
 }
 
+function Get-BlockingProcesses($targetDir) {
+    try {
+        $escapedPath = [Regex]::Escape($targetDir)
+        return Get-CimInstance Win32_Process | Where-Object { 
+            ($_.CommandLine -and $_.CommandLine -match $escapedPath) -or
+            ($_.ExecutablePath -and $_.ExecutablePath -match $escapedPath)
+        }
+    } catch { return @() }
+}
+
+
 function Start-NacosProcess($installDir, $mode, $useDerby) {
     if (-not (Test-Path $installDir)) { throw "Install dir not found: $installDir" }
     $startup = Join-Path $installDir "bin\startup.cmd"
@@ -22,24 +33,33 @@ function Start-NacosProcess($installDir, $mode, $useDerby) {
     $args = @("-m", $mode)
     if ($useDerby -and $mode -eq "cluster") { $args += @("-p", "embedded") }
 
-    Start-Process -FilePath $startup -WorkingDirectory $installDir -ArgumentList $args -WindowStyle Hidden | Out-Null
+    # Create a wrapper to auto-answer batch prompts
+    $cmdLine = "echo Y | cmd /c `"$startup`" $($args -join ' ')"
+    $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $cmdLine -WorkingDirectory $installDir -WindowStyle Hidden -PassThru
+    $wrapperPid = $proc.Id
     Start-Sleep -Seconds 2
-    $pid = $null
+    $nacosPid = $null
     $retry = 0
-    while ($retry -lt 10 -and -not $pid) {
+    while ($retry -lt 10 -and -not $nacosPid) {
         Start-Sleep -Seconds 1
-        $pid = Find-NacosProcessPid $installDir
+        $nacosPid = Find-NacosProcessPid $installDir
         $retry++
     }
 
     Remove-Item Env:JAVA_OPT -ErrorAction SilentlyContinue
-    return $pid
+    
+    if ($nacosPid) {
+        return @($wrapperPid, $nacosPid)
+    }
+    return $wrapperPid
 }
 
 function Wait-ForNacosReady($mainPort, $consolePort, $version, $maxWait) {
     if (-not $maxWait) { $maxWait = 60 }
     $major = [int]($version.Split('.')[0])
     $healthUrl = if ($major -ge 3) { "http://localhost:$consolePort/v3/console/health/readiness" } else { "http://localhost:$mainPort/nacos/v2/console/health/readiness" }
+    
+    Write-Host -NoNewline "[INFO] Waiting for Nacos to be ready..."
     for ($i=0; $i -lt $maxWait; $i++) {
         try {
             if ($PSVersionTable.PSVersion.Major -lt 6) {
@@ -47,10 +67,15 @@ function Wait-ForNacosReady($mainPort, $consolePort, $version, $maxWait) {
             } else {
                 $r = Invoke-WebRequest -Uri $healthUrl -Method Get -TimeoutSec 5
             }
-            if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 300) { return $true }
+            if ($r.StatusCode -ge 200 -and $r.StatusCode -lt 300) { 
+                Write-Host " Done." -ForegroundColor Green
+                return $true 
+            }
         } catch {}
+        Write-Host -NoNewline "."
         Start-Sleep -Seconds 1
     }
+    Write-Host " Timeout!" -ForegroundColor Red
     return $false
 }
 
@@ -86,13 +111,18 @@ function Print-CompletionInfo($installDir, $consoleUrl, $serverPort, $consolePor
     if ([int]($version.Split('.')[0]) -ge 3) { Write-Host "  - Console Port: $consolePort" }
     Write-Host ""
     if ($password) {
-        Write-Host "Authentication is enabled."
+        Write-Host "Authentication is enabled. Please login with:"
         Write-Host "  Username: $username"
         Write-Host "  Password: $password"
     } else {
-        Write-Host "Default login: nacos / nacos"
+        Write-Host "Default login credentials:"
+        Write-Host "  Username: nacos"
+        Write-Host "  Password: nacos"
     }
     Write-Host ""
+    Write-Host "========================================"
+    Write-Host "Perfect !"
+    Write-Host "========================================"
 }
 
 function Copy-PasswordToClipboard($password) {
@@ -110,4 +140,46 @@ function Open-Browser($url) {
         Start-Process $url | Out-Null
         return $true
     } catch { return $false }
+}
+
+function Print-ClusterCompletionInfo($clusterDir, $clusterId, $nodeMain, $nodeConsole, $version, $username, $password, $tokenSecret, $identityKey, $identityValue) {
+    if (-not $nodeMain) { return }
+    $count = $nodeMain.Count
+    $major = [int]($version.Split('.')[0])
+    $localIp = Get-LocalIp
+
+    Write-Host ""
+    Write-Host "========================================"
+    Write-Info "Cluster Started Successfully!"
+    Write-Host "========================================"
+    Write-Host ""
+    Write-Info "Cluster ID: $clusterId"
+    Write-Info "Nodes: $count"
+    Write-Host ""
+    Write-Info "Node endpoints:"
+    for ($i=0; $i -lt $count; $i++) {
+        $mp = $nodeMain[$i]
+        $cp = $nodeConsole[$i]
+        
+        $url = if ($major -ge 3) { 
+            "http://${localIp}:${cp}/index.html" 
+        } else { 
+            "http://${localIp}:${mp}/nacos/index.html" 
+        }
+        Write-Host "  Node ${i}: $url"
+    }
+
+    Write-Host ""
+    if ($password) {
+        Write-Host "Login credentials:"
+        Write-Host "  Username: $username"
+        Write-Host "  Password: $password"
+    }
+
+    Write-Host ""
+    Write-Host "========================================"
+    Write-Host "Perfect !"
+    Write-Host "========================================"
+    
+    return "http://${localIp}:$(if($major -ge 3) { $nodeConsole[0] } else { $nodeMain[0] })$(if($major -lt 3) { '/nacos/index.html' } else { '/index.html' })"
 }

@@ -57,7 +57,7 @@ package_linux() {
     rm -rf "$tmp_dir"
     mkdir -p "$tmp_dir/$name"
     
-    # Linux files only (exclude installer)
+    # Linux files only (exclude installer and Windows files)
     local include=("nacos-setup.sh" "lib" "README.md" "LICENSE")
     
     for f in "${include[@]}"; do
@@ -107,7 +107,7 @@ package_windows() {
     rm -rf "$tmp_dir"
     mkdir -p "$tmp_dir/$name"
     
-    # Windows files only (exclude installer)
+    # Windows files only (exclude nacos-installer.ps1)
     if [ -d "$PROJECT_ROOT/windows" ]; then
         # Copy all files from windows directory except nacos-installer.ps1
         for item in "$PROJECT_ROOT/windows"/*; do
@@ -120,6 +120,9 @@ package_windows() {
         print "Error: windows directory not found"
         exit 1
     fi
+    
+    # Also explicitly remove any installer files from temp dir
+    rm -f "$tmp_dir/$name/nacos-installer.ps1" 2>/dev/null || true
     
     # Copy shared documentation
     cp "$PROJECT_ROOT/README.md" "$tmp_dir/$name/" 2>/dev/null || true

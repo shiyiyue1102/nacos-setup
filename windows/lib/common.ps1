@@ -5,16 +5,33 @@ $Global:ColorWarn = "Yellow"
 $Global:ColorError = "Red"
 $Global:ColorSuccess = "Green"
 
-function Write-Info($msg) { Write-Host "[INFO] $msg" -ForegroundColor $Global:ColorInfo }
-function Write-Warn($msg) { Write-Host "[WARN] $msg" -ForegroundColor $Global:ColorWarn }
-function Write-ErrorMsg($msg) { Write-Host "[ERROR] $msg" -ForegroundColor $Global:ColorError }
-function Write-Success($msg) { Write-Host "[SUCCESS] $msg" -ForegroundColor $Global:ColorSuccess }
+function Get-LogTimestamp {
+    return Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+}
+
+function Write-Info($msg) { 
+    Write-Host "[INFO] $msg" -ForegroundColor $Global:ColorInfo 
+}
+
+function Write-Warn($msg) { 
+    Write-Host "[WARN] $msg" -ForegroundColor $Global:ColorWarn 
+}
+
+function Write-ErrorMsg($msg) { 
+    Write-Host "[ERROR] $msg" -ForegroundColor $Global:ColorError 
+}
+
+function Write-Success($msg) { 
+    Write-Host "[SUCCESS] $msg" -ForegroundColor $Global:ColorSuccess 
+}
 
 function Ensure-Directory($path) {
     if (-not (Test-Path $path)) { New-Item -ItemType Directory -Path $path | Out-Null }
 }
 
 function Version-Ge($v1, $v2) {
+    if ([string]::IsNullOrWhiteSpace($v1)) { $v1 = "0.0.0" }
+    if ([string]::IsNullOrWhiteSpace($v2)) { $v2 = "0.0.0" }
     $a = $v1.Split('.') | ForEach-Object { [int]($_) }
     $b = $v2.Split('.') | ForEach-Object { [int]($_) }
     for ($i=0; $i -lt 3; $i++) {
@@ -54,6 +71,7 @@ function Get-LocalIp {
 }
 
 function Update-ConfigProperty($configFile, $key, $value) {
+    if ([string]::IsNullOrWhiteSpace($configFile)) { throw "Config file path cannot be empty" }
     if (-not (Test-Path $configFile)) { throw "Config file not found: $configFile" }
     $lines = Get-Content -Path $configFile -Raw -ErrorAction Stop -Encoding UTF8
     $pattern = "(?m)^(#?" + [Regex]::Escape($key) + ")=.*$"
