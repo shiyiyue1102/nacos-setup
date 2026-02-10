@@ -662,20 +662,20 @@ function Leave-ClusterMode {
     
     $targetNodeDir = $targetNode.FullName
     
-    # Verify node directory is valid
-    if (-not (Test-Path $targetNodeDir)) {
-        Write-ErrorMsg "Node directory does not exist: $targetNodeDir"
-        throw "Node directory not accessible"
-    }
-    
     Write-Info "Removing node: $($targetNode.Name)"
     Write-Info "Node directory: $targetNodeDir"
+    
+    $nodeExists = Test-Path $targetNodeDir
+    if (-not $nodeExists) {
+        Write-Warn "Node directory does not exist (already removed?): $targetNodeDir"
+        Write-Info "Will proceed to update cluster.conf to ensure cleanup is complete"
+    }
     
     # Get node port
     $nodeConfig = Join-Path $targetNodeDir "conf\application.properties"
     $nodePort = $null
     
-    if (Test-Path $nodeConfig) {
+    if ($nodeExists -and (Test-Path $nodeConfig)) {
         Write-Info "Reading config file: $nodeConfig"
         Get-Content $nodeConfig | ForEach-Object {
             if ($_ -match "^nacos.server.main.port=(\d+)") {
