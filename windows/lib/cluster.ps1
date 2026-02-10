@@ -676,6 +676,13 @@ function Leave-ClusterMode {
         }
     }
     
+    if (-not $nodePort) {
+        Write-ErrorMsg "Cannot determine node port from config"
+        throw "Node port not found in configuration"
+    }
+    
+    Write-Info "Node port: $nodePort"
+    
     # Update cluster.conf (remove this node)
     if ($nodePort) {
         $clusterConfPath = Join-Path $clusterDir "cluster.conf"
@@ -706,10 +713,35 @@ function Leave-ClusterMode {
     }
     
     # Stop node
-    $processes = Get-Process java -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*$targetNodeDir*" }
-    foreach ($proc in $processes) {
-        Write-Info "Stopping node (PID: $($proc.Id))"
-        $proc | Stop-Process -Force -ErrorAction SilentlyContinue
+    Write-Info "Stopping node process on port $nodePort..."
+    
+    # Find process using the port
+    $processes = Get-CimInstance Win32_Process | Where-Object { 
+        $_.CommandLine -and 
+        $_.CommandLine -match "java" -and 
+        $_.CommandLine -match "nacos.server.main.port=$nodePort"
+    }
+    
+    # Fallback: search by install directory if port-based search fails
+    if (-not $processes) {
+        $processes = Get-CimInstance Win32_Process | Where-Object { 
+            $_.CommandLine -and 
+            $_.CommandLine -match "java" -and 
+            $_.CommandLine -match [Regex]::Escape($targetNodeDir)
+        }
+    }
+    
+    if ($processes) {
+        $processes | ForEach-Object {
+            Write-Info "Stopping Java process (PID: $($_.ProcessId))"
+            try {
+                Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+            } catch {
+                Write-Warn "Failed to stop process $($_.ProcessId): $_"
+            }
+        }
+    } else {
+        Write-Warn "No Java process found for node $($targetNode.Name) on port $nodePort"
     }
     
     # Wait for process to fully terminate and release files
