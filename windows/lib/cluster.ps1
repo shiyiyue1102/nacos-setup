@@ -641,7 +641,7 @@ function Leave-ClusterMode {
     
     if (-not (Test-Path $clusterDir)) {
         Write-ErrorMsg "Cluster not found: $($Global:ClusterId)"
-        exit 1
+        throw "Cluster directory not found"
     }
     
     $existingNodes = @(Get-ChildItem -Path $clusterDir -Directory -Filter "*-v*" -ErrorAction SilentlyContinue | Sort-Object Name)
@@ -657,7 +657,7 @@ function Leave-ClusterMode {
     
     if (-not $targetNode) {
         Write-ErrorMsg "Node $($Global:NodeIndex) not found"
-        exit 1
+        throw "Node index $($Global:NodeIndex) not found in cluster"
     }
     
     $targetNodeDir = $targetNode.FullName
@@ -711,6 +711,9 @@ function Leave-ClusterMode {
         Write-Info "Stopping node (PID: $($proc.Id))"
         $proc | Stop-Process -Force -ErrorAction SilentlyContinue
     }
+    
+    # Wait for process to fully terminate and release files
+    Start-Sleep -Seconds 2
     
     # Remove directory
     Remove-Item -Path $targetNodeDir -Recurse -Force -ErrorAction SilentlyContinue
