@@ -67,7 +67,7 @@ function Remove-DirectorySafe($path) {
     }
 
     Write-ErrorMsg "Failed to remove $path. Please close any running nacos-setup processes and try again."
-    exit 1
+    throw "Failed to remove directory: $path"
 }
 
 # =============================
@@ -224,7 +224,7 @@ if ($InstallCli) {
         Write-ErrorMsg "Binary file not found in package. Expected: $expected"
         Write-Info "Available files in package:"
         Get-ChildItem -Path $extractDir -Recurse | ForEach-Object { "  $($_.FullName)" }
-        exit 1
+        throw "Binary file not found in package"
     }
     
     Copy-Item -Path $binaryPath.FullName -Destination (Join-Path $InstallDir $BinName) -Force
@@ -269,7 +269,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "${SetupInstallDir}\$SetupSc
             Write-Success "You can now use the command:"
             Write-Info "  nacos-setup --help"
             Write-Host ""
-            exit 0
+            return
         }
         Write-Warn "nacos-setup directory exists but script is missing. Reinstalling..."
     }
@@ -302,13 +302,13 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "${SetupInstallDir}\$SetupSc
     $setupDir = Get-ChildItem -Path $extractDir -Directory | Select-Object -First 1
     if (-not $setupDir) {
         Write-ErrorMsg "Failed to find extracted directory in $setupZipName"
-        exit 1
+        throw "Failed to find extracted directory"
     }
     
     $setupScriptInZip = Join-Path $setupDir.FullName $SetupScriptName
     if (-not (Test-Path $setupScriptInZip)) {
         Write-ErrorMsg "$SetupScriptName not found in package"
-        exit 1
+        throw "$SetupScriptName not found in package"
     }
     
     Copy-Item -Path (Join-Path $setupDir.FullName "*") -Destination $SetupInstallDir -Recurse -Force
@@ -316,7 +316,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "${SetupInstallDir}\$SetupSc
     $setupScriptPath = Join-Path $SetupInstallDir $SetupScriptName
     if (-not (Test-Path $setupScriptPath)) {
         Write-ErrorMsg "nacos-setup.ps1 not found after extraction"
-        exit 1
+        throw "nacos-setup.ps1 not found after extraction"
     }
     
     $content = Get-Content -Path $setupScriptPath -Raw

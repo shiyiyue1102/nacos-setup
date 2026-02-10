@@ -111,7 +111,7 @@ function Start-ClusterNode {
     }
     
     # Wait for readiness
-    if (Wait-NacosReady $MainPort $ConsolePort $NacosVersion 60) {
+    if (Wait-ForNacosReady $MainPort $ConsolePort $NacosVersion 60) {
         $endTime = Get-Date
         $elapsed = ($endTime - $startTime).TotalSeconds
         Write-Info "Node $NodeName ready (PID: $nacosPid, $([int]$elapsed)s)"
@@ -161,20 +161,20 @@ function New-Cluster {
     Write-Host ""
     
     # Check Java
-    if (-not (Test-JavaRequirements $Global:Version $Global:AdvancedMode)) {
+    if (-not (Check-JavaRequirements $Global:Version $Global:AdvancedMode)) {
         Invoke-ClusterCleanup 1
     }
     Write-Host ""
     
     # Download Nacos
-    $zipFile = Get-NacosZip $Global:Version
+    $zipFile = Download-Nacos $Global:Version
     if (-not $zipFile) {
         Invoke-ClusterCleanup 1
     }
     Write-Host ""
     
     # Configure cluster security
-    New-ClusterSecurity $clusterDir $Global:AdvancedMode
+    Configure-Cluster-Security $clusterDir $Global:AdvancedMode
     
     # Check datasource
     $datasourceFile = Get-GlobalDatasourceConfig
@@ -190,7 +190,7 @@ function New-Cluster {
     
     # Allocate ports for all nodes
     Write-Info "Allocating ports for $($Global:ReplicaCount) nodes..."
-    $portResult = Get-ClusterPorts $Global:BasePort $Global:ReplicaCount $Global:Version
+    $portResult = Allocate-ClusterPorts $Global:BasePort $Global:ReplicaCount $Global:Version
     
     if (-not $portResult) {
         Write-ErrorMsg "Failed to allocate ports"
@@ -224,8 +224,17 @@ function New-Cluster {
         
         Write-Info "Configuring node $i..."
         
-        if (-not (Extract-NacosToTarget $zipFile $clusterDir $nodeName)) {
-            Write-ErrorMsg "Failed to extract node $nodeName"
+        $tempDir = Extract-NacosToTemp $zipFile
+        if (-not $tempDir) {
+            Write-ErrorMsg "Failed to extract Nacos package"
+            Invoke-ClusterCleanup 1
+        }
+        
+        $installResult = Install-Nacos $tempDir $nodeDir
+        Cleanup-TempDir (Split-Path $tempDir -Parent)
+        
+        if (-not $installResult) {
+            Write-ErrorMsg "Failed to install node $nodeName"
             Invoke-ClusterCleanup 1
         }
         
@@ -246,13 +255,13 @@ function New-Cluster {
         
         Copy-Item $configFile "$configFile.original"
         Update-PortConfig $configFile $nodeMainPorts[$i] $nodeConsolePorts[$i] $Global:Version
-        Add-SecurityConfig $configFile $Global:TokenSecret $Global:IdentityKey $Global:IdentityValue
-        
+        Apply-SecurityConfig $configFile $Global:TokenSecret $Global:IdentityKey $Global:IdentityValue
+
         $datasourceFile = Get-GlobalDatasourceConfig
         if ($datasourceFile) {
-            Add-DatasourceConfig $configFile $datasourceFile
+            Apply-DatasourceConfig $configFile $datasourceFile
         } elseif ($useDerby) {
-            Add-DerbyConfig $configFile
+            Configure-Derby-For-Cluster $configFile
         }
         
         Remove-Item "$configFile.bak" -ErrorAction SilentlyContinue
@@ -481,7 +490,7 @@ function Join-ClusterMode {
     Write-Host ""
     
     # Check Java
-    if (-not (Test-JavaRequirements $Global:Version $Global:AdvancedMode)) {
+    if (-not (Check-JavaRequirements $Global:Version $Global:AdvancedMode)) {
         Invoke-ClusterCleanup 1
     }
     
@@ -505,13 +514,24 @@ function Join-ClusterMode {
     $Global:NacosPassword = $props["admin.password"]
     
     # Download and extract
-    $zipFile = Get-NacosZip $Global:Version
+    $zipFile = Download-Nacos $Global:Version
     if (-not $zipFile) {
         Invoke-ClusterCleanup 1
     }
     
     $newNodeDir = Join-Path $clusterDir $newNodeName
-    if (-not (Extract-NacosToTarget $zipFile $clusterDir $newNodeName)) {
+    
+    $tempDir = Extract-NacosToTemp $zipFile
+    if (-not $tempDir) {
+        Write-ErrorMsg "Failed to extract Nacos package"
+        Invoke-ClusterCleanup 1
+    }
+    
+    $installResult = Install-Nacos $tempDir $newNodeDir
+    Cleanup-TempDir (Split-Path $tempDir -Parent)
+    
+    if (-not $installResult) {
+        Write-ErrorMsg "Failed to install node $newNodeName"
         Invoke-ClusterCleanup 1
     }
     
@@ -558,12 +578,12 @@ function Join-ClusterMode {
     
     Copy-Item $configFile "$configFile.original"
     Update-PortConfig $configFile $newMainPort $newConsolePort $Global:Version
-    Add-SecurityConfig $configFile $Global:TokenSecret $Global:IdentityKey $Global:IdentityValue
+    Apply-SecurityConfig $configFile $Global:TokenSecret $Global:IdentityKey $Global:IdentityValue
     
     if ($datasourceFile) {
-        Add-DatasourceConfig $configFile $datasourceFile
+        Apply-DatasourceConfig $configFile $datasourceFile
     } elseif ($useDerby) {
-        Add-DerbyConfig $configFile
+        Configure-Derby-For-Cluster $configFile
     }
     
     Remove-Item "$configFile.bak" -ErrorAction SilentlyContinue

@@ -69,7 +69,7 @@ curl -fsSL https://nacos.io/nacos-installer.sh | sudo bash -s -- --cli
 
 ```powershell
 # 仅安装 nacos-cli
-powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://nacos.io/nacos-installer.ps1 | iex" -ArgumentList "--cli"
+iwr -UseBasicParsing https://nacos.io/nacos-installer.ps1 -OutFile $env:TEMP\nacos-installer.ps1; & $env:TEMP\nacos-installer.ps1 -cli; Remove-Item $env:TEMP\nacos-installer.ps1
 ```
 
 更多 nacos-cli 使用说明，请参考：https://github.com/nacos-group/nacos-cli

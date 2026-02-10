@@ -393,6 +393,12 @@ function Run-Standalone {
 }
 
 function Run-Cluster {
+    # If JoinMode or LeaveMode, delegate to cluster.ps1
+    if ($Global:JoinMode -or $Global:LeaveMode) {
+        Invoke-ClusterMode
+        return
+    }
+    
     Write-Info "Nacos Cluster Installation"
     $clusterDir = Join-Path $ClusterBaseDir $Global:ClusterId
     if (Test-Path $clusterDir) {
@@ -400,7 +406,7 @@ function Run-Cluster {
         if ($Global:CleanMode) {
             Write-Warn "Cleaning existing cluster..."
             $shouldRemove = $true
-        } elseif (-not $Global:JoinMode -and -not $Global:LeaveMode) {
+        } else {
             Write-Warn "Removing existing cluster at $clusterDir"
             $shouldRemove = $true
         }
@@ -442,77 +448,14 @@ function Run-Cluster {
     $ds = Load-GlobalDatasourceConfig
     $useDerby = -not $ds
 
-    if ($Global:JoinMode -or $Global:LeaveMode) {
-        $existingNodes = Get-ChildItem -Path $clusterDir -Directory -ErrorAction SilentlyContinue |
-            Where-Object { $_.Name -match '^[0-9]+-v' } |
-            Sort-Object { [int]($_.Name -split '-v')[0] }
-    } else {
-        $existingNodes = @()
-    }
-
-    if ($Global:LeaveMode) {
-        $idx = [int]$Global:NodeIndex
-        $nodeDir = Join-Path $clusterDir "$idx-v$($Global:Version)"
-        $removedPort = $null
-        if (Test-Path $nodeDir) {
-            $removedPort = Get-NodeMainPort $nodeDir $Global:Version
-            Remove-Item -Recurse -Force $nodeDir
-        }
-        foreach ($node in $existingNodes) {
-            $conf = Join-Path $node.FullName "conf\cluster.conf"
-            if (Test-Path $conf) {
-                if ($removedPort) {
-                    $lines = Get-Content -Path $conf | Where-Object { $_ -notmatch ":$removedPort$" }
-                } else {
-                    $lines = Get-Content -Path $conf
-                }
-                $lines | Set-Content -Path $conf -Encoding UTF8
-            }
-        }
-        Write-Info "Node $idx removed"
-        return
-    }
-
-    $existingMainPorts = @()
-    $existingConsolePorts = @()
-    if ($existingNodes.Count -gt 0) {
-        foreach ($node in $existingNodes) {
-            $mp = Get-NodeMainPort $node.FullName $Global:Version
-            if ($mp) { $existingMainPorts += $mp }
-            $cp = Get-NodeConsolePort $node.FullName
-            if ($cp) { $existingConsolePorts += $cp }
-        }
-    }
-
-    if ($Global:JoinMode) {
-        $Global:ReplicaCount = $existingNodes.Count + 1
-    }
-
     $nodeMain = @()
     $nodeConsole = @()
 
-    if ($existingMainPorts.Count -gt 0 -and $Global:JoinMode) {
-        $nodeMain = $existingMainPorts
-        $nodeConsole = $existingConsolePorts
-        $newIndex = ($existingNodes | ForEach-Object { ($_.Name -split '-v')[0] } | ForEach-Object { [int]$_ } | Measure-Object -Maximum).Maximum + 1
-        $candidatePort = $Global:BasePort + ($newIndex * 10)
-        $newMain = Find-AvailableNacosPort $candidatePort
-        if (-not $newMain) { throw "No available port for new node" }
-        $nodeMain += $newMain
-        if ([int]($Global:Version.Split('.')[0]) -ge 3) {
-            $newConsole = Find-AvailablePort (8080 + $newIndex * 10)
-            if (-not $newConsole) { $newConsole = Find-AvailablePort 18080 }
-            $nodeConsole += $newConsole
-        } else {
-            $nodeConsole += 0
-        }
-    } else {
-        $ports = Allocate-ClusterPorts $Global:BasePort $Global:ReplicaCount $Global:Version
-        foreach ($pair in $ports) {
-            $parts = $pair.Split(':')
-            $nodeMain += [int]$parts[0]
-            $nodeConsole += [int]$parts[1]
-        }
+    $ports = Allocate-ClusterPorts $Global:BasePort $Global:ReplicaCount $Global:Version
+    foreach ($pair in $ports) {
+        $parts = $pair.Split(':')
+        $nodeMain += [int]$parts[0]
+        $nodeConsole += [int]$parts[1]
     }
 
     $localIp = Get-LocalIp
@@ -527,20 +470,16 @@ function Run-Cluster {
         }
 
         $nodeClusterConf = Join-Path $nodeDir "conf\cluster.conf"
-        if (-not (Test-Path $nodeClusterConf) -or -not $Global:JoinMode) {
-            @() | Set-Content -Path $nodeClusterConf -Encoding UTF8
-            for ($j=0; $j -le $i; $j++) {
-                $port = $nodeMain[$j]
-                Add-Content -Path $nodeClusterConf -Value "${localIp}:$port"
-            }
+        @() | Set-Content -Path $nodeClusterConf -Encoding UTF8
+        for ($j=0; $j -le $i; $j++) {
+            $port = $nodeMain[$j]
+            Add-Content -Path $nodeClusterConf -Value "${localIp}:$port"
         }
 
         $configFile = Join-Path $nodeDir "conf\application.properties"
-        if (-not $Global:JoinMode -or -not (Test-Path $configFile)) {
-            Update-PortConfig $configFile $nodeMain[$i] $nodeConsole[$i] $Global:Version
-            Apply-SecurityConfig $configFile $Global:TOKEN_SECRET $Global:IDENTITY_KEY $Global:IDENTITY_VALUE
-            if ($ds) { Apply-DatasourceConfig $configFile $ds | Out-Null } elseif ($useDerby) { Configure-Derby-For-Cluster $configFile }
-        }
+        Update-PortConfig $configFile $nodeMain[$i] $nodeConsole[$i] $Global:Version
+        Apply-SecurityConfig $configFile $Global:TOKEN_SECRET $Global:IDENTITY_KEY $Global:IDENTITY_VALUE
+        if ($ds) { Apply-DatasourceConfig $configFile $ds | Out-Null } elseif ($useDerby) { Configure-Derby-For-Cluster $configFile }
     }
 
     if ($Global:AutoStart) {
