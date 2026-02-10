@@ -662,22 +662,54 @@ function Leave-ClusterMode {
     
     $targetNodeDir = $targetNode.FullName
     
+    # Verify node directory is valid
+    if (-not (Test-Path $targetNodeDir)) {
+        Write-ErrorMsg "Node directory does not exist: $targetNodeDir"
+        throw "Node directory not accessible"
+    }
+    
     Write-Info "Removing node: $($targetNode.Name)"
+    Write-Info "Node directory: $targetNodeDir"
     
     # Get node port
     $nodeConfig = Join-Path $targetNodeDir "conf\application.properties"
     $nodePort = $null
     
-    Get-Content $nodeConfig | ForEach-Object {
-        if ($_ -match "^nacos.server.main.port=(\d+)") {
-            $nodePort = [int]$matches[1]
-        } elseif ($_ -match "^server.port=(\d+)" -and -not $nodePort) {
-            $nodePort = [int]$matches[1]
+    if (Test-Path $nodeConfig) {
+        Write-Info "Reading config file: $nodeConfig"
+        Get-Content $nodeConfig | ForEach-Object {
+            if ($_ -match "^nacos.server.main.port=(\d+)") {
+                $nodePort = [int]$matches[1]
+            } elseif ($_ -match "^server.port=(\d+)" -and -not $nodePort) {
+                $nodePort = [int]$matches[1]
+            }
+        }
+    } else {
+        Write-Warn "Config file not found: $nodeConfig"
+        Write-Info "Attempting to infer port from cluster.conf..."
+        
+        # Try to infer port from existing cluster.conf or other nodes
+        $clusterConfPath = Join-Path $clusterDir "cluster.conf"
+        if (Test-Path $clusterConfPath) {
+            $clusterContent = Get-Content $clusterConfPath
+            # Port numbers are typically sequential or follow a pattern
+            # Extract the highest port and assume next would be used
+            $ports = @()
+            $clusterContent | ForEach-Object {
+                if ($_ -match ":(\d+)$") {
+                    $ports += [int]$matches[1]
+                }
+            }
+            if ($ports.Count -gt 0) {
+                # Estimate: typically ports increment by 10 or so
+                $nodePort = ($ports | Measure-Object -Maximum).Maximum + 10
+                Write-Info "Estimated node port based on cluster.conf: $nodePort"
+            }
         }
     }
     
     if (-not $nodePort) {
-        Write-ErrorMsg "Cannot determine node port from config"
+        Write-ErrorMsg "Cannot determine node port from config or cluster.conf"
         throw "Node port not found in configuration"
     }
     
