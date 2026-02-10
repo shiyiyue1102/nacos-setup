@@ -145,45 +145,155 @@ function Update-PortConfig($configFile, $serverPort, $consolePort, $nacosVersion
 }
 
 function Configure-DatasourceConf {
-    Ensure-Directory (Split-Path $Global:GlobalDatasourceConfig -Parent)
-
-    $dbType = Read-Host "Database type (mysql/postgresql)"
-    if (-not $dbType) { throw "Database type is required" }
-    $dbType = $dbType.ToLower()
-    if ($dbType -ne "mysql" -and $dbType -ne "postgresql") { throw "Unsupported database type" }
-
-    $host = Read-Host "Database host"
-    if (-not $host) { throw "Database host is required" }
-
-    $port = Read-Host "Database port"
-    if (-not $port) {
-        $port = if ($dbType -eq "mysql") { "3306" } else { "5432" }
+    Write-Host ""
+    Write-Info "========================================"
+    Write-Info "External Datasource Configuration"
+    Write-Info "========================================"
+    Write-Host ""
+    Write-Host "This will create a global datasource configuration that will be"
+    Write-Host "used by all future Nacos installations (standalone or cluster)."
+    Write-Host ""
+    Write-Host "Supported databases: MySQL, PostgreSQL"
+    Write-Host ""
+    
+    # Check if config already exists
+    if (Test-Path $Global:GlobalDatasourceConfig) {
+        Write-Warn "Existing datasource configuration found at:"
+        Write-Warn "  $Global:GlobalDatasourceConfig"
+        Write-Host ""
+        $confirm = Read-Host "Overwrite existing configuration? (y/N)"
+        if ($confirm -notmatch '^[Yy]$') {
+            Write-Info "Operation cancelled"
+            return
+        }
+        Write-Host ""
     }
-
-    $dbName = Read-Host "Database name"
-    if (-not $dbName) { throw "Database name is required" }
-
-    $user = Read-Host "Database username"
-    if (-not $user) { throw "Database username is required" }
-
-    $pass = Read-Host "Database password"
-    if (-not $pass) { $pass = "" }
-
-    if ($dbType -eq "mysql") {
-        $jdbc = "jdbc:mysql://$host`:$port/$dbName?characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useUnicode=true&useSSL=false&serverTimezone=UTC"
+    
+    # Database Type
+    Write-Host "Step 1/6: Database Type"
+    Write-Host "  1) MySQL"
+    Write-Host "  2) PostgreSQL"
+    Write-Host ""
+    
+    $dbPlatform = ""
+    while ($true) {
+        $dbTypeChoice = Read-Host "Select database type (1-2)"
+        switch ($dbTypeChoice) {
+            "1" { $dbPlatform = "mysql"; break }
+            "2" { $dbPlatform = "postgresql"; break }
+            default { Write-Host "Invalid choice. Please enter 1 or 2." }
+        }
+        if ($dbPlatform) { break }
+    }
+    Write-Host ""
+    
+    # Database Host
+    Write-Host "Step 2/6: Database Host"
+    $dbHost = Read-Host "Enter database host (default: localhost)"
+    if (-not $dbHost) { $dbHost = "localhost" }
+    Write-Host ""
+    
+    # Database Port
+    Write-Host "Step 3/6: Database Port"
+    $defaultPort = if ($dbPlatform -eq "mysql") { "3306" } else { "5432" }
+    $dbPort = Read-Host "Enter database port (default: $defaultPort)"
+    if (-not $dbPort) { $dbPort = $defaultPort }
+    Write-Host ""
+    
+    # Database Name
+    Write-Host "Step 4/6: Database Name"
+    $dbName = Read-Host "Enter database name (default: nacos)"
+    if (-not $dbName) { $dbName = "nacos" }
+    Write-Host ""
+    
+    # Database User
+    Write-Host "Step 5/6: Database User"
+    $dbUser = Read-Host "Enter database username"
+    while (-not $dbUser) {
+        Write-Host "Username cannot be empty"
+        $dbUser = Read-Host "Enter database username"
+    }
+    Write-Host ""
+    
+    # Database Password
+    Write-Host "Step 6/6: Database Password"
+    $securePassword = Read-Host "Enter database password" -AsSecureString
+    $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+    $dbPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+    [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+    Write-Host ""
+    
+    while (-not $dbPassword) {
+        Write-Host "Password cannot be empty"
+        $securePassword = Read-Host "Enter database password" -AsSecureString
+        $BSTR = [System.Runtime.InteropServices.Marshal]::SecureStringToBSTR($securePassword)
+        $dbPassword = [System.Runtime.InteropServices.Marshal]::PtrToStringAuto($BSTR)
+        [System.Runtime.InteropServices.Marshal]::ZeroFreeBSTR($BSTR)
+        Write-Host ""
+    }
+    
+    # Construct database URL
+    $dbUrl = ""
+    if ($dbPlatform -eq "mysql") {
+        $dbUrl = "jdbc:mysql://${dbHost}:${dbPort}/${dbName}?characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true"
     } else {
-        $jdbc = "jdbc:postgresql://$host`:$port/$dbName?stringtype=unspecified"
+        $dbUrl = "jdbc:postgresql://${dbHost}:${dbPort}/${dbName}?currentSchema=public"
     }
+    
+    # Create directory if not exists
+    $datasourceDir = Split-Path $Global:GlobalDatasourceConfig -Parent
+    Ensure-Directory $datasourceDir
+    
+    # Write configuration
+    $configContent = @"
+# Nacos External Datasource Configuration
+# Auto-generated on $(Get-Date)
 
-    @"
-# Nacos datasource config (auto-generated)
-spring.sql.init.platform=$dbType
-spring.datasource.platform=$dbType
+# Database platform (mysql or postgresql)
+spring.sql.init.platform=$dbPlatform
+
+# Database connection pool size
 db.num=1
-db.url.0=$jdbc
-db.user.0=$user
-db.password.0=$pass
-"@ | Set-Content -Path $Global:GlobalDatasourceConfig -Encoding UTF8
 
-    Write-Info "Datasource configuration saved to: $Global:GlobalDatasourceConfig"
+# Database connection URL
+db.url.0=$dbUrl
+
+# Database credentials
+db.user.0=$dbUser
+db.password.0=$dbPassword
+
+# Connection pool configuration
+db.pool.config.connectionTimeout=30000
+db.pool.config.validationTimeout=10000
+db.pool.config.maximumPoolSize=20
+db.pool.config.minimumIdle=2
+"@
+    
+    Set-Content -Path $Global:GlobalDatasourceConfig -Value $configContent -Encoding UTF8
+    
+    Write-Host ""
+    Write-Success "Datasource configuration saved to:"
+    Write-Success "  $Global:GlobalDatasourceConfig"
+    Write-Host ""
+    Write-Info "Configuration Summary:"
+    Write-Host "  Platform:  $dbPlatform"
+    Write-Host "  Host:      $dbHost"
+    Write-Host "  Port:      $dbPort"
+    Write-Host "  Database:  $dbName"
+    Write-Host "  User:      $dbUser"
+    Write-Host ""
+    Write-Info "This configuration will be used by all future Nacos installations."
+    Write-Warn "Make sure the database exists and is accessible before installing Nacos."
+    Write-Host ""
+    
+    # Provide SQL initialization hint
+    if ($dbPlatform -eq "mysql") {
+        Write-Info "To initialize the database schema, run:"
+        Write-Host "  mysql -h$dbHost -P$dbPort -u$dbUser -p $dbName < `$NACOS_HOME\conf\mysql-schema.sql"
+    } else {
+        Write-Info "To initialize the database schema, run:"
+        Write-Host "  psql -h$dbHost -p$dbPort -U$dbUser -d$dbName -f `$NACOS_HOME\conf\postgresql-schema.sql"
+    }
+    Write-Host ""
 }
+

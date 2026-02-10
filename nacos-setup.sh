@@ -349,11 +349,9 @@ main() {
     
     # Handle datasource configuration mode (special mode)
     if [ "$DATASOURCE_CONF_MODE" = true ]; then
-        # This will be implemented in a separate module
-        print_info "Datasource configuration mode"
-        print_warn "This feature will be available after full migration"
-        print_info "For now, please use: bash install.sh --datasource-conf"
-        exit 0
+        source "$LIB_DIR/config_manager.sh"
+        configure_datasource_interactive
+        exit $?
     fi
     
     # Validate arguments

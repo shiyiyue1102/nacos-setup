@@ -549,8 +549,8 @@ function Run-Cluster {
 try {
     Parse-Arguments $args
     if ($DatasourceConfMode) {
-        Write-Info "DatasourceConf mode detected"
-        return
+        Configure-DatasourceConf
+        exit 0
     }
     Validate-Arguments
 

@@ -49,6 +49,167 @@ load_global_datasource_config() {
     return 1
 }
 
+# Configure datasource interactively
+# Creates global datasource configuration file
+# Returns: 0 on success, 1 on failure
+configure_datasource_interactive() {
+    print_info ""
+    print_info "========================================"
+    print_info "External Datasource Configuration"
+    print_info "========================================"
+    echo ""
+    echo "This will create a global datasource configuration that will be"
+    echo "used by all future Nacos installations (standalone or cluster)."
+    echo ""
+    echo "Supported databases: MySQL, PostgreSQL"
+    echo ""
+    
+    # Check if config already exists
+    if [ -f "$GLOBAL_DATASOURCE_CONFIG" ] && [ -s "$GLOBAL_DATASOURCE_CONFIG" ]; then
+        print_warn "Existing datasource configuration found at:"
+        print_warn "  $GLOBAL_DATASOURCE_CONFIG"
+        echo ""
+        read -p "Overwrite existing configuration? (y/N): " confirm
+        if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+            print_info "Operation cancelled"
+            return 1
+        fi
+        echo ""
+    fi
+    
+    # Database Type
+    echo "Step 1/6: Database Type"
+    echo "  1) MySQL"
+    echo "  2) PostgreSQL"
+    echo ""
+    while true; do
+        read -p "Select database type (1-2): " db_type_choice
+        case $db_type_choice in
+            1) db_platform="mysql"; break ;;
+            2) db_platform="postgresql"; break ;;
+            *) echo "Invalid choice. Please enter 1 or 2." ;;
+        esac
+    done
+    echo ""
+    
+    # Database Host
+    echo "Step 2/6: Database Host"
+    read -p "Enter database host (default: localhost): " db_host
+    db_host=${db_host:-localhost}
+    echo ""
+    
+    # Database Port
+    echo "Step 3/6: Database Port"
+    local default_port
+    if [ "$db_platform" = "mysql" ]; then
+        default_port=3306
+    else
+        default_port=5432
+    fi
+    read -p "Enter database port (default: $default_port): " db_port
+    db_port=${db_port:-$default_port}
+    echo ""
+    
+    # Database Name
+    echo "Step 4/6: Database Name"
+    read -p "Enter database name (default: nacos): " db_name
+    db_name=${db_name:-nacos}
+    echo ""
+    
+    # Database User
+    echo "Step 5/6: Database User"
+    read -p "Enter database username: " db_user
+    while [ -z "$db_user" ]; do
+        echo "Username cannot be empty"
+        read -p "Enter database username: " db_user
+    done
+    echo ""
+    
+    # Database Password
+    echo "Step 6/6: Database Password"
+    read -s -p "Enter database password: " db_password
+    echo ""
+    while [ -z "$db_password" ]; do
+        echo "Password cannot be empty"
+        read -s -p "Enter database password: " db_password
+        echo ""
+    done
+    echo ""
+    
+    # Construct database URL
+    local db_url
+    if [ "$db_platform" = "mysql" ]; then
+        db_url="jdbc:mysql://${db_host}:${db_port}/${db_name}?characterEncoding=utf8&connectTimeout=1000&socketTimeout=3000&autoReconnect=true&useSSL=false&allowPublicKeyRetrieval=true"
+    else
+        db_url="jdbc:postgresql://${db_host}:${db_port}/${db_name}?currentSchema=public"
+    fi
+    
+    # Create directory if not exists
+    local datasource_dir=$(dirname "$GLOBAL_DATASOURCE_CONFIG")
+    if ! mkdir -p "$datasource_dir" 2>/dev/null; then
+        print_error "Cannot create directory: $datasource_dir"
+        print_error "Please ensure you have write permissions or run with appropriate privileges"
+        return 1
+    fi
+    
+    # Write configuration
+    if ! cat > "$GLOBAL_DATASOURCE_CONFIG" 2>/dev/null << EOF
+# Nacos External Datasource Configuration
+# Auto-generated on $(date)
+
+# Database platform (mysql or postgresql)
+spring.sql.init.platform=$db_platform
+
+# Database connection pool size
+db.num=1
+
+# Database connection URL
+db.url.0=$db_url
+
+# Database credentials
+db.user.0=$db_user
+db.password.0=$db_password
+
+# Connection pool configuration
+db.pool.config.connectionTimeout=30000
+db.pool.config.validationTimeout=10000
+db.pool.config.maximumPoolSize=20
+db.pool.config.minimumIdle=2
+EOF
+    then
+        print_error "Cannot write to file: $GLOBAL_DATASOURCE_CONFIG"
+        print_error "Please check file permissions"
+        return 1
+    fi
+    
+    echo ""
+    print_success "Datasource configuration saved to:"
+    print_success "  $GLOBAL_DATASOURCE_CONFIG"
+    echo ""
+    print_info "Configuration Summary:"
+    echo "  Platform:  $db_platform"
+    echo "  Host:      $db_host"
+    echo "  Port:      $db_port"
+    echo "  Database:  $db_name"
+    echo "  User:      $db_user"
+    echo ""
+    print_info "This configuration will be used by all future Nacos installations."
+    print_warn "Make sure the database exists and is accessible before installing Nacos."
+    echo ""
+    
+    # Provide SQL initialization hint
+    if [ "$db_platform" = "mysql" ]; then
+        print_info "To initialize the database schema, run:"
+        echo "  mysql -h$db_host -P$db_port -u$db_user -p$db_password $db_name < \$NACOS_HOME/conf/mysql-schema.sql"
+    else
+        print_info "To initialize the database schema, run:"
+        echo "  psql -h$db_host -p$db_port -U$db_user -d$db_name -f \$NACOS_HOME/conf/postgresql-schema.sql"
+    fi
+    echo ""
+    
+    return 0
+}
+
 # Apply datasource configuration to node
 # Parameters: config_file, datasource_file
 # Returns: 0 on success, 1 on failure
