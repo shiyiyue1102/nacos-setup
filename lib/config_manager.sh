@@ -183,8 +183,8 @@ EOF
     fi
     
     echo ""
-    print_success "Datasource configuration saved to:"
-    print_success "  $GLOBAL_DATASOURCE_CONFIG"
+    print_info "Datasource configuration saved to:"
+    print_info "  $GLOBAL_DATASOURCE_CONFIG"
     echo ""
     print_info "Configuration Summary:"
     echo "  Platform:  $db_platform"
