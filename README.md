@@ -1,6 +1,6 @@
 # Nacos Setup
 
-一个强大的 Nacos 安装和管理工具，支持 Nacos Server 端一键部署（单机/集群），并可安装终端工具 nacos-cli。
+一个强大的 Nacos 安装和管理工具，支持 Nacos Server 端一键部署（单机/集群）。
 
 ## ✨ 特性
 
@@ -12,13 +12,10 @@
 - 💾 **数据源配置**：支持外部数据库（MySQL/PostgreSQL）或内置 Derby
 - 📦 **缓存下载**：下载的 Nacos 包会被缓存，避免重复下载
 - 🌐 **全局可用**：安装后可在任何目录下使用 `nacos-setup` 命令
-- 🧰 **仅安装 CLI**：支持 `--cli` 模式，仅安装 nacos-cli
-- 🔗 **nacos-cli 仓库**：https://github.com/nacos-group/nacos-cli
 
 ## 📌 当前版本
 
 - nacos-setup：0.0.1
-- nacos-cli：0.0.1
 
 ## 📦 安装
 
@@ -33,7 +30,7 @@ curl -fsSL https://nacos.io/nacos-installer.sh | sudo bash
 #### Windows（PowerShell 原生）
 
 ```powershell
-# 一键安装 nacos-cli + nacos-setup（会生成 nacos-setup 命令）
+# 一键安装 nacos-setup（会生成 nacos-setup 命令）
 powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://nacos.io/nacos-installer.ps1 | iex"
 
 # 运行 nacos-setup（同 bash 版参数）
@@ -51,17 +48,31 @@ cd nacos-setup
 sudo bash nacos-installer.sh
 ```
 
-### 仅安装 nacos-cli
-
-```bash
-curl -fsSL https://nacos.io/nacos-installer.sh | sudo bash -s -- --cli
-```
-
 ### 验证安装
 
 ```bash
 nacos-setup --help
 ```
+
+### 可选：安装 nacos-cli
+
+nacos-cli 是独立的 Nacos 命令行管理工具，默认不会安装。如需使用，可以单独安装：
+
+#### Linux / macOS
+
+```bash
+# 仅安装 nacos-cli
+curl -fsSL https://nacos.io/nacos-installer.sh | sudo bash -s -- --cli
+```
+
+#### Windows
+
+```powershell
+# 仅安装 nacos-cli
+powershell -NoProfile -ExecutionPolicy Bypass -Command "iwr -UseBasicParsing https://nacos.io/nacos-installer.ps1 | iex" -ArgumentList "--cli"
+```
+
+更多 nacos-cli 使用说明，请参考：https://github.com/nacos-group/nacos-cli
 
 ## 🚀 快速开始
 
