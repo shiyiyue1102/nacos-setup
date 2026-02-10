@@ -683,32 +683,47 @@ function Leave-ClusterMode {
     
     Write-Info "Node port: $nodePort"
     
+    Write-Info "Updating cluster.conf (removing node with port $nodePort)..."
     # Update cluster.conf (remove this node)
     if ($nodePort) {
         $clusterConfPath = Join-Path $clusterDir "cluster.conf"
         if (Test-Path $clusterConfPath) {
+            Write-Info "Found master cluster.conf at: $clusterConfPath"
+            $oldContent = Get-Content $clusterConfPath
+            Write-Info "Original cluster.conf entries: $(($oldContent | Measure-Object).Count)"
+            
             $content = Get-Content $clusterConfPath | Where-Object { $_ -notmatch ":${nodePort}$" }
             $content | Out-File -FilePath $clusterConfPath -Encoding ASCII
+            Write-Info "Updated master cluster.conf: removed port $nodePort (remaining entries: $(($content | Measure-Object).Count))"
             
             # Update all remaining nodes
+            Write-Info "Updating cluster.conf in remaining nodes..."
+            $updatedCount = 0
             foreach ($existingNode in $existingNodes) {
                 if ($existingNode.Name -ne $targetNode.Name) {
                     $nodeClusterConf = Join-Path (Join-Path $clusterDir $existingNode.Name) "conf\cluster.conf"
                     Copy-Item $clusterConfPath $nodeClusterConf
+                    Write-Info "Updated: $($existingNode.Name)/conf/cluster.conf"
+                    $updatedCount++
                 }
             }
+            Write-Info "Cluster.conf updated in $updatedCount remaining nodes"
         } else {
             Write-Warn "Master cluster.conf not found, updating individual node configs"
             # Manually update each remaining node's cluster.conf
+            $updatedCount = 0
             foreach ($existingNode in $existingNodes) {
                 if ($existingNode.Name -ne $targetNode.Name) {
                     $nodeClusterConf = Join-Path (Join-Path $clusterDir $existingNode.Name) "conf\cluster.conf"
                     if (Test-Path $nodeClusterConf) {
                         $content = Get-Content $nodeClusterConf | Where-Object { $_ -notmatch ":${nodePort}$" }
                         $content | Out-File -FilePath $nodeClusterConf -Encoding ASCII
+                        Write-Info "Updated: $($existingNode.Name)/conf/cluster.conf (removed port $nodePort)"
+                        $updatedCount++
                     }
                 }
             }
+            Write-Info "Updated $updatedCount individual node configs"
         }
     }
     
@@ -716,6 +731,7 @@ function Leave-ClusterMode {
     Write-Info "Stopping node process on port $nodePort..."
     
     # Find process using the port
+    Write-Info "Searching for Java process with port $nodePort (method: port matching)..."
     $processes = Get-CimInstance Win32_Process | Where-Object { 
         $_.CommandLine -and 
         $_.CommandLine -match "java" -and 
@@ -724,6 +740,8 @@ function Leave-ClusterMode {
     
     # Fallback: search by install directory if port-based search fails
     if (-not $processes) {
+        Write-Info "Port-based search failed, trying directory-based search..."
+        Write-Info "Searching for Java process in directory: $targetNodeDir"
         $processes = Get-CimInstance Win32_Process | Where-Object { 
             $_.CommandLine -and 
             $_.CommandLine -match "java" -and 
@@ -732,25 +750,49 @@ function Leave-ClusterMode {
     }
     
     if ($processes) {
+        Write-Info "Found $($processes.Count) Java process(es)"
+        $killedCount = 0
         $processes | ForEach-Object {
-            Write-Info "Stopping Java process (PID: $($_.ProcessId))"
+            Write-Info "Killing Java process (PID: $($_.ProcessId), Command: $($_.CommandLine.Substring(0, [Math]::Min(100, $_.CommandLine.Length)))...)"
             try {
                 Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
+                Write-Info "Successfully killed process PID: $($_.ProcessId)"
+                $killedCount++
             } catch {
                 Write-Warn "Failed to stop process $($_.ProcessId): $_"
             }
         }
+        Write-Info "Total processes killed: $killedCount/$($processes.Count)"
     } else {
         Write-Warn "No Java process found for node $($targetNode.Name) on port $nodePort"
     }
     
     # Wait for process to fully terminate and release files
+    Write-Info "Waiting for process to fully terminate and release files..."
     Start-Sleep -Seconds 2
+    Write-Info "Proceeding with directory removal"
     
     # Remove directory
-    Remove-Item -Path $targetNodeDir -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Info "Removing node directory: $targetNodeDir"
+    try {
+        if (Test-Path $targetNodeDir) {
+            $dirSize = (Get-ChildItem -Path $targetNodeDir -Recurse -Force | Measure-Object -Property Length -Sum).Sum
+            $dirSizeMB = [math]::Round($dirSize / 1MB, 2)
+            Write-Info "Directory size: $dirSizeMB MB"
+            
+            Remove-Item -Path $targetNodeDir -Recurse -Force -ErrorAction Stop
+            Write-Info "Successfully removed node directory"
+        } else {
+            Write-Warn "Node directory not found: $targetNodeDir"
+        }
+    } catch {
+        Write-ErrorMsg "Failed to remove node directory: $_"
+        throw "Directory removal failed"
+    }
     
-    Write-Info "Node removed successfully"
+    Write-Info "Node $($targetNode.Name) removed successfully"
+    Write-Info "==================================="
+    Write-Host ""
 }
 
 # ============================================================================
