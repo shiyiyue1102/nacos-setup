@@ -142,7 +142,7 @@ function Invoke-StandaloneMode {
     New-StandaloneSecurity $configFile $Global:AdvancedMode
     
     # Load and apply datasource configuration
-    $datasourceFile = Get-GlobalDatasourceConfig
+    $datasourceFile = Load-GlobalDatasourceConfig
     if ($datasourceFile) {
         Write-Info "Applying global datasource configuration..."
         Add-DatasourceConfig $configFile $datasourceFile

@@ -177,7 +177,7 @@ function New-Cluster {
     Configure-Cluster-Security $clusterDir $Global:AdvancedMode
     
     # Check datasource
-    $datasourceFile = Get-GlobalDatasourceConfig
+    $datasourceFile = Load-GlobalDatasourceConfig
     $useDerby = $true
     
     if ($datasourceFile) {
@@ -257,7 +257,7 @@ function New-Cluster {
         Update-PortConfig $configFile $nodeMainPorts[$i] $nodeConsolePorts[$i] $Global:Version
         Apply-SecurityConfig $configFile $Global:TokenSecret $Global:IdentityKey $Global:IdentityValue
 
-        $datasourceFile = Get-GlobalDatasourceConfig
+        $datasourceFile = Load-GlobalDatasourceConfig
         if ($datasourceFile) {
             Apply-DatasourceConfig $configFile $datasourceFile
         } elseif ($useDerby) {
@@ -571,7 +571,7 @@ function Join-ClusterMode {
     Add-Content -Path (Join-Path $clusterDir "cluster.conf") -Value "${localIp}:${newMainPort}" -Encoding ASCII
     
     # Configure node
-    $datasourceFile = Get-GlobalDatasourceConfig
+    $datasourceFile = Load-GlobalDatasourceConfig
     $useDerby = $true
     if ($datasourceFile) { $useDerby = $false }
     
@@ -600,7 +600,7 @@ function Join-ClusterMode {
     # Update cluster.conf in existing nodes
     Write-Info "Updating cluster.conf in existing nodes..."
     foreach ($existingNode in $existingNodes) {
-        Copy-Item (Join-Path $clusterDir "cluster.conf") (Join-Path $clusterDir $existingNode.Name "conf\cluster.conf")
+        Copy-Item (Join-Path $clusterDir "cluster.conf") (Join-Path -Path (Join-Path $clusterDir $existingNode.Name) -ChildPath "conf\cluster.conf")
     }
     Write-Host ""
     
@@ -686,7 +686,8 @@ function Leave-ClusterMode {
             # Update all remaining nodes
             foreach ($existingNode in $existingNodes) {
                 if ($existingNode.Name -ne $targetNode.Name) {
-                    Copy-Item $clusterConfPath (Join-Path $clusterDir $existingNode.Name "conf\cluster.conf")
+                    $nodeClusterConf = Join-Path (Join-Path $clusterDir $existingNode.Name) "conf\cluster.conf"
+                    Copy-Item $clusterConfPath $nodeClusterConf
                 }
             }
         } else {
@@ -694,7 +695,7 @@ function Leave-ClusterMode {
             # Manually update each remaining node's cluster.conf
             foreach ($existingNode in $existingNodes) {
                 if ($existingNode.Name -ne $targetNode.Name) {
-                    $nodeClusterConf = Join-Path $clusterDir $existingNode.Name "conf\cluster.conf"
+                    $nodeClusterConf = Join-Path (Join-Path $clusterDir $existingNode.Name) "conf\cluster.conf"
                     if (Test-Path $nodeClusterConf) {
                         $content = Get-Content $nodeClusterConf | Where-Object { $_ -notmatch ":${nodePort}$" }
                         $content | Out-File -FilePath $nodeClusterConf -Encoding ASCII
